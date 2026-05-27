@@ -1,96 +1,66 @@
-# Excel Intelligent Search API
+# Enterprise Workforce Intelligence Chatbot
 
-An intelligent, domain-agnostic FastAPI service that accepts any user-uploaded Excel directory/dataset and allows natural language querying against it using **Structured Filtering**, **Semantic Search**, or **Hybrid Search**.
-
----
-
-## 🌟 Key Features
-
-* **Domain-Agnostic Query Parsing**: Dynamically extracts roles, locations, names, and individual skills from the uploaded Excel sheet to build a vocabulary context. Queries are parsed case-insensitively using regex word-boundary boundaries and singular/plural variations.
-* **Exact & Fuzzy Skill Splitting**: Distinguishes between **known skills** (existing in the dataset or skill dictionary) and **dynamic skills** (out-of-dictionary skills like "mud work" or "biotechnology" parsed via NLP triggers).
-* **Strict Constraint Matching**: Employs hard filters for explicit role, location, name, and known skill parameters.
-* **False-Positive Prevention**: Dynamic skills are validated against the candidate's core profile (`Role | Skills`) using sentence embeddings. Profiles with zero semantic overlap (similarity score `< 0.12`) are automatically filtered out.
-* **Hybrid Search Re-Ranking**: Combines the precision of structured filtering with the contextual awareness of semantic search.
+An enterprise-grade conversational AI assistant built over a relational Excel workbook containing 8 connected sheets. It supports **Structured Filtering**, **Semantic Search**, and **Hybrid Search** with **Multi-Turn Conversation Memory** (incremental refinement) and **LLM-powered Query Routing** using GPT-4o-mini and FAISS vector index.
 
 ---
 
-## 🏗️ Architecture & Component Flow
+## 🏗️ Enterprise Architecture Flow
 
 ```
-                     ┌──────────────────────────┐
-                     │ User Uploads Excel file  │
-                     │  + Natural Language Query│
-                     └─────────────┬────────────┘
-                                   │
-                     ┌─────────────▼────────────┐
-                     │   FastAPI /search POST   │
-                     └─────────────┬────────────┘
-                                   │
-                     ┌─────────────▼────────────┐
-                     │  Schema & Column Check   │  ← Name, Role, Location, Experience, Skills
-                     └─────────────┬────────────┘
-                                   │
-                     ┌─────────────▼────────────┐
-                     │ Dataset Vocab Extraction │  ← Extracts unique roles, locations, names,
-                     └─────────────┬────────────┘    and individual split skills
-                                   │
-                     ┌─────────────▼────────────┐
-                     │    Query Parser Engine   │  ← Regex, spaCy NER, known/dynamic skills split
-                     └─────────────┬────────────┘
-                                   │
-          ┌────────────────────────┼────────────────────────┐
-          ▼                        ▼                        ▼
-┌──────────────────┐     ┌──────────────────┐     ┌──────────────────┐
-│ STRUCTURED Mode  │     │  SEMANTIC Mode   │     │   HYBRID Mode    │
-├──────────────────┤     ├──────────────────┤     ├──────────────────┤
-│ - Filters by name│     │ - Clean & expand │     │ - Structured hard│
-│ - Exact role match│    │   query          │     │   filters first  │
-│ - Location match │     │ - Embeddings via │     │ - Semantic re-rank│
-│ - Experience filtering │   SentenceTransformers││   on subset      │
-│   (range/seniority)│   │ - Cosine sim     │     │ - Dynamic skill  │
-│ - Known skills   │     │   scoring        │     │   check (>= 0.12)│
-└─────────┬────────┘     └─────────┬────────┘     └─────────┬────────┘
-          │                        │                        │
-          └────────────────────────┼────────────────────────┘
-                                   │
-                     ┌─────────────▼────────────┐
-                     │  Deduplicate & Format    │
-                     └─────────────┬────────────┘
-                                   │
-                     ┌─────────────▼────────────┐
-                     │   JSON Response Payload  │
-                     └──────────────────────────┘
+User ──> React Chatbot UI (Port 3000/8000)
+             │
+             ▼
+     FastAPI Backend (Port 8000)
+             │
+             ├──> Conversation Manager (Tracks session filter states & refinements)
+             ├──> LLM Query Router (GPT-4o-mini: Classifies intent & extracts constraints)
+             │      └── Fallback: Local rule-based parser (spaCy NER & Regex)
+             ▼
+     Search Orchestrator
+             │
+             ├──> Structured Search (Pandas/Python multi-key filters)
+             ├──> Semantic Search (SentenceTransformers + FAISS Index)
+             └──> Hybrid Search (Structured filters first, then semantic re-ranking)
+                     │
+                     ▼
+       [Unified Employee Knowledge Profiles]
+                     ▲
+                     │ (Merged on PS No key)
+       [Data Cleaner & Relational Join Engine]
+                     ▲
+                     │ (Loaded sheets)
+     [Excel Ingestor: In-Memory / Upload Workbook]
 ```
 
 ---
 
-## 🚦 Intent Flows & Routing Logic
+## 📊 Relational Database Schema (8 Sheets)
+All sheets are connected via the primary join key: `PS No`.
+1. **Staff_Master**: Core details (Name, Cadre, Band, Designation, Exp, Cluster, BU, SBG, Manager).
+2. **Internal_Exp**: Historical internal project postings (Org, From, To).
+3. **External_Exp**: Past companies & external job histories (Org, Designation, From, To).
+4. **Segment_Exposure**: Industry vertical domains (Segment, Sub-Segment).
+5. **Skill_Proficiency**: Detailed skills and proficiency ratings (Skill, Sub-Skill, Declared & Reviewed Proficiency, Core Skill flag).
+6. **Job_Skill_Mapping**: Skill metrics at work role levels (Org, Skill, Sub-Skill, Role, Reporting Count, Value).
+7. **Certification**: Employee professional credentials.
+8. **Qualification**: Academic degrees (Year, Description).
 
-When `mode` is set to `auto` (default), the API automatically routes queries to the most appropriate search mode based on extracted components:
+---
 
-### 1. Structured Intent
-* **Trigger**: The query contains structural fields (role, location, name, or experience criteria) but **no skills/expertise** triggers.
-* **Example**: `"show senior developers in Bangalore with 5+ years experience"`
-* **Flow**:
-  1. The dataset is filtered using Pandas based on the parsed constraints.
-  2. Experience levels (e.g., "senior", "freshers") are mapped to numeric ranges.
-  3. No semantic embeddings are generated, optimizing processing speed.
+## 🚀 Tech Stack
 
-### 2. Semantic Intent
-* **Trigger**: The query asks about skills, competencies, or fuzzy topics without specifying structural attributes, or focuses purely on skills.
-* **Example**: `"who is expert in tunneling and deep excavation"`
-* **Flow**:
-  1. conversational wrappers (e.g. "who is expert in") are stripped to focus on core semantic terms.
-  2. Text embeddings are generated for both the query and the candidate rows (Role + Location + Experience + Skills).
-  3. Similarity is measured using cosine similarity (or FAISS indexing). Profiles scoring above `0.33` are returned, sorted by relevance.
-
-### 3. Hybrid Intent
-* **Trigger**: The query mixes structural constraints with specific skills (known or dynamic).
-* **Example**: `"civil engineers in Chennai who have built bridges"`
-* **Flow**:
-  1. **Phase A (Structured Filter)**: Strict constraints (Role = `"Civil Engineer"`, Location = `"Chennai"`, plus any exact matching Known Skills like `"Bridges"`) are applied as hard filters. This reduces the search space.
-  2. **Phase B (Semantic Ranking)**: Any dynamic skills in the query are encoded. The semantic model scores the filtered subset of candidates.
-  3. **Phase C (Semantic Guard)**: For dynamic/out-of-dictionary skills (e.g. `"mud work"`), we batch-encode the candidate's `"Role | Skills"` and ensure its similarity score is `>= 0.12` to prevent irrelevant matches. Candidates matching the structured criteria but scoring poorly on the skill are excluded.
+| Component | Technology |
+| :--- | :--- |
+| **Frontend** | React (Vite) + TypeScript + Vanilla Premium CSS (Glassmorphism & animations) |
+| **Backend** | FastAPI + Uvicorn |
+| **Data Engine** | Pandas (data loading, relational merges, exact filters) |
+| **Semantic Vectors** | `sentence-transformers` (`all-MiniLM-L6-v2`) |
+| **Vector Database** | `FAISS` (CPU flat inner product index for cosine similarity) |
+| **AI Router / LLM** | OpenAI API (`gpt-4o-mini`) |
+| **Local Parser** | spaCy (`en_core_web_sm` model) + Regular Expressions |
+| **Logging** | `structlog` (structured JSON logging for request tracing) |
+| **Tests** | `pytest` + FastAPI `TestClient` |
+| **Container** | Docker + Docker Compose (multi-stage build serving React static build via FastAPI) |
 
 ---
 
@@ -98,118 +68,127 @@ When `mode` is set to `auto` (default), the API automatically routes queries to 
 
 ### Prerequisites
 * Python 3.10+
-* pip
+* Docker (Optional for container run)
 
-### 1. Setup Virtual Environment & Install Dependencies
-
+### 1. Setup Virtual Environment
 ```bash
-# Clone the repository (or enter project folder)
-cd excel_search_api-fin
-
-# Create a virtual environment
+# Create and activate environment
 python -m venv venv
-
-# Activate the virtual environment
-# On Windows (PowerShell):
+# Windows (PowerShell)
 .\venv\Scripts\Activate.ps1
-# On Windows (CMD):
-.\venv\Scripts\activate.bat
-# On macOS/Linux:
+# Mac/Linux
 source venv/bin/activate
 
 # Install requirements
 pip install -r requirements.txt
-```
 
-### 2. Download the NLP SpaCy Model
-The project uses spaCy's English model for Entity Recognition (NER) to parse names and location filters:
-```bash
+# Download spaCy model
 python -m spacy download en_core_web_sm
 ```
 
-### 3. Generate Sample Excel Data
-You can generate a dummy workforce Excel sheet containing various roles, skills, and experience structures to test immediately:
+### 2. Configure Environment Variables
+Create a `.env` file in the root directory (or in `backend/`):
+```env
+OPENAI_API_KEY=your-openai-api-key-here
+LOG_LEVEL=info
+```
+
+### 3. Generate Synthetic Database
+The project contains a generator to build a realistic 1000-employee relational dataset matching the target schema:
 ```bash
 python generate_sample_excel.py
-# Creates: sample_employees.xlsx
+# Generates: synthetic_skill_dataset.xlsx
 ```
 
-### 4. Run the API Locally
-Start the FastAPI server using Uvicorn:
+### 4. Run Locally
 ```bash
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+# Start FastAPI backend
+python -m backend.app.main
 ```
-Once started, the API is available at `http://localhost:8000`. You can visit Swagger Interactive Docs at `http://localhost:8000/docs`.
-
-### 5. Running the Test Suite
-The project contains unit and integration tests. Run them using:
-```bash
-pytest tests/ -v
-```
+The server starts on `http://localhost:8000`. If you run in this mode, it automatically serves the pre-generated `synthetic_skill_dataset.xlsx` database. You can inspect endpoints via Swagger at `/docs`.
 
 ---
 
-## 🐳 Docker Deployment
+## 🐳 Docker Deployment (Unified serving)
 
-The application is containerized and can be launched instantly using Docker Compose:
+You can launch the entire unified application (React + FastAPI) in one container using Docker Compose:
 
 ```bash
-# Build and run the container
+# 1. Place your API Key in your terminal environment or .env file
+export OPENAI_API_KEY="sk-..."
+
+# 2. Boot container
 docker-compose up --build
 ```
-The server will bind to port `8000` on the host machine.
+* Once booted, open `http://localhost:8000` in your browser.
+* The container compiles the React app into static files, copies them to the runtime image, and mounts them inside the FastAPI server.
 
 ---
 
 ## 📬 API Specifications
 
 ### `GET /health`
-Validates that the server is up and responsive.
-* **Response**:
-  ```json
-  {"status": "ok"}
-  ```
+Verifies server health and database load state.
+```json
+{
+  "status": "ok",
+  "database_loaded": true,
+  "source_file": "synthetic_skill_dataset.xlsx",
+  "profiles_count": 1000
+}
+```
 
-### `POST /validate`
-Uploads and validates an Excel file schema.
-* **Form Parameters**:
-  * `file`: Excel Binary file (`.xlsx`)
-* **Response**:
-  ```json
-  {
-    "valid": true,
-    "rows": 16,
-    "columns": ["Name", "Role", "Location", "Experience", "Skills"],
-    "message": "Schema is valid. Ready for search."
-  }
-  ```
+### `POST /upload-workbook`
+Upload a new relational multi-sheet Excel file.
+* **Form-data**: `file`: (binary `.xlsx`)
+```json
+{
+  "message": "Workbook loaded, cleaned, joined, and indexed successfully.",
+  "filename": "custom_employees.xlsx",
+  "profiles_count": 1000
+}
+```
 
-### `POST /search`
-Main endpoint for searching candidates using natural language.
-* **Form Parameters**:
-  * `file`: Excel file (`.xlsx`)
-  * `query`: `"show electricians with knowledge about about current"`
-  * `mode`: `"auto"` (options: `"auto"`, `"structured"`, `"semantic"`, `"hybrid"`)
-* **Response Sample**:
-  ```json
-  {
-    "query": "show electricians with knowledge about about current",
-    "mode": "hybrid",
-    "filters_applied": {
-      "role": "Electrician",
-      "skills": ["Current"]
-    },
-    "total_in_file": 16,
-    "results_count": 1,
-    "results": [
-      {
-        "Name": "Lewis Curry",
-        "Role": "Electrician",
-        "Location": "Chennai",
-        "Experience": "1 year",
-        "Skills": "Electrical, Lighting",
-        "_similarity_score": 0.5074
-      }
-    ]
-  }
-  ```
+### `POST /chat`
+Main conversational endpoint.
+* **Payload**:
+```json
+{
+  "session_id": "session_abc123",
+  "message": "show civil engineers in Chennai with 10+ years experience"
+}
+```
+* **Response**:
+```json
+{
+  "message": "Filtering for Civil Engineers in Chennai. Found 15 matching employees:",
+  "results_count": 15,
+  "active_filters": {
+    "designation": "Civil Engineer",
+    "location": "Chennai",
+    "experience_min": 10
+  },
+  "results": [
+    {
+      "ps_no": 12345,
+      "staff_name": "Arun Kumar",
+      "designation": "Civil Engineer",
+      "cluster": "Chennai",
+      "total_exp": 12.5,
+      "skills": [...],
+      "certifications": [...],
+      "qualifications": [...],
+      "internal_experience": [...],
+      "external_experience": [...]
+    }
+  ]
+}
+```
+
+---
+
+## 🧪 Running the Test Suite
+We have custom tests checking relational loads, data sanitization, pandas merges, FAISS indices, and API workflows:
+```bash
+python -m pytest backend/tests/ -v
+```

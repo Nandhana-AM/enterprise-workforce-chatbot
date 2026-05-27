@@ -67,4 +67,8 @@ Thumbs.db
 # Excel / Office temporary files (since this is an excel search project)
 ~$*.xlsx
 ~$*.xls
-~$*.xlsm
+~$*.xlsmfrontend/node_modules/
+backend/__pycache__/
+.env
+
+node_modules/
