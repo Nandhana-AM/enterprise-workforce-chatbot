@@ -45,13 +45,18 @@ Output format must be a single valid JSON block with these keys:
     "external_org": string or null,
     "certification": string or array of strings or null,
     "certification_operator": "and" | "or" | null,
+    "certification_groups": array of arrays of strings or null,
     "qualification": string or array of strings or null,
     "qualification_operator": "and" | "or" | null,
+    "qualification_groups": array of arrays of strings or null,
     "segment": string or array of strings or null,
     "segment_operator": "and" | "or" | null,
     "skill": string or array of strings or null,
     "skill_operator": "and" | "or" | null,
-    "sub_skill": string or null,
+    "sub_skill": string or array of strings or null,
+    "sub_skill_operator": "and" | "or" | null,
+    "external_designation": string or array of strings or null,
+    "external_designation_operator": "and" | "or" | null,
     "reviewed_proficiency": string or null, // e.g. "Expert", "Proficient", or "reviewed only"
     "is_core_skill": boolean or null,
     "skills_text": string or null // the semantic portion of the query
@@ -61,6 +66,54 @@ Output format must be a single valid JSON block with these keys:
 
 For any attribute that can take an array of strings, if multiple values are queried (e.g. "PMP and RICS", "Bangalore or Hyderabad"), extract them as a JSON array of strings, and determine the logical operator ("and" or "or") based on the query structure. Default to "and" for certification and skill, and "or" for others.
 If the query is ambiguous, set "clarification_message" to ask the user for details, but still try to make the best search decision.
+
+IMPORTANT — Designation vs Skill/Sub-Skill rules:
+- "designation" is for CURRENT JOB ROLES/TITLES (e.g. "Project Manager", "Civil Engineer", "Safety Engineer").
+  - If a user asks "who are all project managers" or "show me the project managers in <location>", this is a role/designation check. Set "designation" to "Project Manager" and do NOT set "skill" or "sub_skill" to "Project Management".
+  - Map disciplines in designations to their standard abbreviated parentheses form:
+    - "mechanical" -> "(Mech)" (e.g. "Construction Manager in Mechanical" -> "Construction Manager (Mech)", "Construction Manager Mechanical" -> "Construction Manager (Mech)")
+    - "electrical" -> "(Elec)" (e.g. "Construction Manager in Electrical" -> "Construction Manager (Elec)", "Construction Manager Electrical" -> "Construction Manager (Elec)")
+    - "civil" -> "(Civil)" (e.g. "Construction Manager in Civil" -> "Construction Manager (Civil)", "Construction Manager Civil" -> "Construction Manager (Civil)")
+- "skill" and "sub_skill" are for skills listed on the skill sheet.
+  - If a user asks "people who know project management", "people who know about managing projects", or "people with project management skills", this is a skill check. Set "skill" to "Project Management" and do NOT set "designation" to "Project Manager".
+
+IMPORTANT — Designation vs External Designation (Past/Prior Experience):
+- Use "designation" for current designation (e.g. "who are civil engineers", "show civil engineers in Delhi").
+- Use "external_designation" when the query specifically asks about past/prior experience or former roles (e.g. "who were civil engineers", "people who worked as site engineers previously", "past experience as construction manager").
+
+IMPORTANT — Skill vs Sub-Skill classification:
+- "skill" is for general skill categories (e.g. "Project Management", "Civil Engineering", "Electrical Engineering", "Digital & IT", "Mechanical Engineering").
+- "sub_skill" is for specific sub-skills (e.g. "Primavera P6", "Risk Management", "Contract Administration", "PMP", "Billing & Invoicing", "Project Scheduling", "Agile", "MS Project", "Cost Estimation").
+- When a sub-skill is asked for specifically, populate "sub_skill" (e.g. "Agile") and leave "skill" as null. When a general skill is asked for, populate "skill" (e.g. "Project Management").
+
+IMPORTANT — Qualification vs Certification disambiguation:
+- "certification" is for PROFESSIONAL CERTIFICATIONS only: PMP, RICS, LEED, NEBOSH, IGBC, IPMA, ASNT, ASME, BIM, Primavera, AWS, etc.
+- "qualification" is for ACADEMIC / EDUCATIONAL QUALIFICATIONS only: MBA, B.Tech, M.Tech, B.E., B.Arch, Diploma, Ph.D, Master's degree, Bachelor's degree, A.I.S.S.C.E, A.I.S.S.E, etc.
+- NEVER put MBA, B.Tech, Diploma, degree names, or education board qualifications (like AISSCE, AISSE) into the "certification" field.
+- NEVER put PMP, RICS, NEBOSH, or professional certifications into the "qualification" field.
+
+IMPORTANT — Grouped AND/OR qualification and certification logic:
+- Use "qualification_groups" (not "qualification") when the query has compound logic: (A OR B) AND (C OR D).
+- Use "certification_groups" (not "certification") when certs need compound logic.
+- Format: an array of arrays. Each inner array = alternatives OR'd together. Outer array = groups AND'd together.
+- ALL alternatives within a slash-separated group MUST be included. Do NOT drop any.
+
+How to parse slash-separated groups step by step:
+  1. Split query on "and" (or "&") to identify separate requirement groups.
+  2. Within each group, split on "/" to identify alternatives (these are OR'd).
+  3. Include EVERY alternative from step 2 in the inner array.
+
+Examples:
+  Query: "B.Tech/B.E and M.Tech/M.E"
+  Step 1: groups = ["B.Tech/B.E", "M.Tech/M.E"]
+  Step 2: group1_alternatives = ["B.Tech", "B.E"], group2_alternatives = ["M.Tech", "M.E"]
+  Result: qualification_groups: [["B.Tech", "B.E"], ["M.Tech", "M.E"]]
+  ✗ WRONG: [["B.E"], ["M.Tech", "M.E"]]  ← do NOT drop B.Tech!
+
+  Query: "PMP/IPMA certified and NEBOSH/LEED"
+  Result: certification_groups: [["PMP", "IPMA"], ["NEBOSH", "LEED"]]
+
+- When using _groups, set the corresponding flat field ("qualification" or "certification") to null.
 """
 
 def route_query_llm(
@@ -223,13 +276,18 @@ def _fallback_to_rules(query: str, warning_msg: str) -> Dict[str, Any]:
         "external_org": parsed["organization"],
         "certification": parsed["certification"],
         "certification_operator": parsed.get("certification_operator", "and"),
+        "certification_groups": parsed.get("certification_groups"),
         "qualification": parsed["qualification"],
         "qualification_operator": parsed.get("qualification_operator", "or"),
+        "qualification_groups": parsed.get("qualification_groups"),
         "segment": parsed["segment"],
         "segment_operator": parsed.get("segment_operator", "or"),
         "skill": parsed["skill"],
         "skill_operator": parsed.get("skill_operator", "and"),
-        "sub_skill": None,
+        "sub_skill": parsed.get("sub_skill"),
+        "sub_skill_operator": parsed.get("sub_skill_operator", "or"),
+        "external_designation": parsed.get("external_designation"),
+        "external_designation_operator": parsed.get("external_designation_operator", "or"),
         "reviewed_proficiency": parsed["reviewed_proficiency"],
         "is_core_skill": parsed["is_core_skill"],
         "skills_text": query

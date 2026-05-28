@@ -26,6 +26,20 @@ def format_search_response(
         if val is not None and val != "" and val != False and k != "skills_text":
             if k.endswith("_operator"):
                 continue
+
+            # Handle grouped filters: qualification_groups / certification_groups
+            if k in ("qualification_groups", "certification_groups"):
+                is_cert_group = k == "certification_groups"
+                group_parts = []
+                for group in val:
+                    formatted_items = [str(item).upper() if is_cert_group else str(item).title() for item in group]
+                    group_parts.append("(" + " or ".join(formatted_items) + ")" if len(formatted_items) > 1 else formatted_items[0])
+                display_str = " & ".join(group_parts)
+                label = "Certification" if is_cert_group else "Qualification"
+                active_filters_clean[k] = display_str
+                active_filters_display.append(f"{label}: {display_str}")
+                continue
+
             if isinstance(val, list):
                 op = filters.get(f"{k}_operator")
                 if not op:
@@ -35,7 +49,7 @@ def format_search_response(
             else:
                 if k == "certification":
                     active_filters_clean[k] = str(val).upper()
-                elif k in ["designation", "location", "qualification", "segment", "bu", "sbg", "cadre", "band"]:
+                elif k in ["designation", "location", "qualification", "segment", "bu", "sbg", "cadre", "band", "skill", "sub_skill", "external_designation"]:
                     active_filters_clean[k] = str(val).title()
                 else:
                     active_filters_clean[k] = val
@@ -54,7 +68,11 @@ def format_search_response(
                     formatted_val = connector.join(str(item) for item in val)
                 else:
                     formatted_val = str(val)
-                active_filters_display.append(f"{k.title()}: {formatted_val}")
+                label = k.replace("_", " ").title()
+                if label == "Sub Skill":
+                    label = "Sub-Skill"
+                active_filters_display.append(f"{label}: {formatted_val}")
+
                 
     # 2. Build human-readable message
     filter_desc = ""

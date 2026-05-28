@@ -331,6 +331,10 @@ export default function App() {
     return false
   }
 
+  const isMainSkillHighlighted = (mainSkillName: string, skills: Skill[]) => {
+    return skills.filter(sk => sk.Skill === mainSkillName).some(sk => isSkillHighlighted(sk))
+  }
+
 
   return (
     <div className="app-container">
@@ -465,17 +469,40 @@ export default function App() {
                           </div>
 
                           {/* Skills display */}
-                          <div className="section-title" style={{ marginTop: '0.5rem', marginBottom: '0.25rem', fontSize: '0.65rem' }}>Skills</div>
-                          <div className="skills-container">
-                            {(isExpanded ? emp.skills : emp.skills.slice(0, 4)).map((sk, idx) => (
-                              <span key={idx} className={`skill-pill ${isSkillHighlighted(sk) ? 'core' : ''}`}>
-                                {sk['Sub-Skill']} {sk.Reviewed_Proficiency ? `(${sk.Reviewed_Proficiency})` : ''}
-                              </span>
-                            ))}
-                            {!isExpanded && emp.skills.length > 4 && (
-                              <span className="skill-pill">+{emp.skills.length - 4} more</span>
-                            )}
-                          </div>
+                          {!isExpanded ? (
+                            <>
+                              <div className="section-title" style={{ marginTop: '0.5rem', marginBottom: '0.25rem', fontSize: '0.65rem' }}>Skills</div>
+                              <div className="skills-container">
+                                {Array.from(new Set(emp.skills.map(sk => sk.Skill).filter(Boolean))).slice(0, 4).map((mainSkill, idx) => (
+                                  <span key={idx} className={`skill-pill ${isMainSkillHighlighted(mainSkill, emp.skills) ? 'core' : ''}`}>
+                                    {mainSkill}
+                                  </span>
+                                ))}
+                                {Array.from(new Set(emp.skills.map(sk => sk.Skill).filter(Boolean))).length > 4 && (
+                                  <span className="skill-pill">+{Array.from(new Set(emp.skills.map(sk => sk.Skill).filter(Boolean))).length - 4} more</span>
+                                )}
+                              </div>
+                            </>
+                          ) : (
+                            <>
+                              <div className="section-title" style={{ marginTop: '0.5rem', marginBottom: '0.25rem', fontSize: '0.65rem' }}>Skills</div>
+                              <div className="skills-container">
+                                {Array.from(new Set(emp.skills.map(sk => sk.Skill).filter(Boolean))).map((mainSkill, idx) => (
+                                  <span key={idx} className={`skill-pill ${isMainSkillHighlighted(mainSkill, emp.skills) ? 'core' : ''}`}>
+                                    {mainSkill}
+                                  </span>
+                                ))}
+                              </div>
+                              <div className="section-title" style={{ marginTop: '0.75rem', marginBottom: '0.25rem', fontSize: '0.65rem' }}>Sub-Skills</div>
+                              <div className="skills-container">
+                                {emp.skills.map((sk, idx) => (
+                                  <span key={idx} className={`skill-pill ${isSkillHighlighted(sk) ? 'core' : ''}`}>
+                                    {sk['Sub-Skill']} {sk.Reviewed_Proficiency ? `(${sk.Reviewed_Proficiency})` : ''}
+                                  </span>
+                                ))}
+                              </div>
+                            </>
+                          )}
 
                           {/* Expanded Timeline Details */}
                           {isExpanded && (

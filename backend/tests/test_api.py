@@ -514,5 +514,64 @@ def test_dotted_abbreviation_and_bracket_matching():
     assert len(res_search3) == 1
 
 
+def test_designation_modifiers():
+    from backend.app.structured_search import structured_search
+    from backend.app.query_parser import parse_query_rules, update_keyword_lists
+    
+    profiles = [
+        {"ps_no": 1, "designation": "ASST.CONSTRUCTION MANAGER (CIVIL)", "skills": []},
+        {"ps_no": 2, "designation": "CONSTRUCTION MANAGER (CIVIL)", "skills": []},
+        {"ps_no": 3, "designation": "SR.CONSTRUCTION MANAGER (CIVIL)", "skills": []},
+        {"ps_no": 4, "designation": "ASST.MANAGER (FINISHES)", "skills": []},
+        {"ps_no": 5, "designation": "ASST. MANAGER (CIVIL)", "skills": []},
+        {"ps_no": 6, "designation": "CONSTRUCTION MANAGER (MECH)", "skills": []}
+    ]
+    update_keyword_lists(profiles)
+    
+    # 1. Query has "asst manager(finishes)"
+    parsed_finishes = parse_query_rules("asst manager(finishes)")
+    assert parsed_finishes["designation"] == "Assistant Manager (Finishes)"
+    res_finishes = structured_search(profiles, parsed_finishes)
+    assert len(res_finishes) == 1
+    assert res_finishes[0]["ps_no"] == 4
+    
+    # 2. Query has "asst manager"
+    parsed_asst_mgr = parse_query_rules("asst manager")
+    assert parsed_asst_mgr["designation"] == "Assistant Manager"
+    res_asst_mgr = structured_search(profiles, parsed_asst_mgr)
+    assert len(res_asst_mgr) == 3
+    assert {r["ps_no"] for r in res_asst_mgr} == {1, 4, 5}
+    
+    # 3. Query has "sr construction manager in civil"
+    parsed_sr = parse_query_rules("sr construction manager in civil")
+    assert parsed_sr["designation"] == "Senior Construction Manager (Civil)"
+    res_sr = structured_search(profiles, parsed_sr)
+    assert len(res_sr) == 1
+    assert res_sr[0]["ps_no"] == 3
+    
+    # 4. Query is general "construction manager"
+    parsed_gen = parse_query_rules("construction manager")
+    assert parsed_gen["designation"] == "Construction Manager"
+    res_gen = structured_search(profiles, parsed_gen)
+    assert len(res_gen) == 4
+    assert {r["ps_no"] for r in res_gen} == {1, 2, 3, 6}
+
+    # 5. Query has "construction manager in mechanical in delhi"
+    parsed_mech = parse_query_rules("construction manager in mechanical in delhi")
+    assert parsed_mech["designation"] == "Construction Manager (Mech)"
+    assert parsed_mech["location"] == "Delhi"
+    
+    profiles_with_clusters = [
+        {"ps_no": 1, "designation": "ASST.CONSTRUCTION MANAGER (CIVIL)", "cluster": "Chennai", "skills": []},
+        {"ps_no": 2, "designation": "CONSTRUCTION MANAGER (CIVIL)", "cluster": "Delhi", "skills": []},
+        {"ps_no": 3, "designation": "SR.CONSTRUCTION MANAGER (CIVIL)", "cluster": "Delhi", "skills": []},
+        {"ps_no": 6, "designation": "CONSTRUCTION MANAGER (MECH)", "cluster": "Delhi", "skills": []}
+    ]
+    res_mech = structured_search(profiles_with_clusters, parsed_mech)
+    assert len(res_mech) == 1
+    assert res_mech[0]["ps_no"] == 6
+
+
+
 
 

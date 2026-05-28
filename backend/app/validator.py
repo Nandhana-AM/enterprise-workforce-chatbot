@@ -27,12 +27,18 @@ class SearchFilters(BaseModel):
     external_exp_min: Optional[float] = None
     certification: Optional[Union[str, List[str]]] = None
     certification_operator: Optional[str] = "and"
+    certification_groups: Optional[List[List[str]]] = None   # [(A OR B) AND (C OR D)] style
     qualification: Optional[Union[str, List[str]]] = None
     qualification_operator: Optional[str] = "or"
+    qualification_groups: Optional[List[List[str]]] = None   # [(A OR B) AND (C OR D)] style
     segment: Optional[Union[str, List[str]]] = None
     segment_operator: Optional[str] = "or"
     skill: Optional[Union[str, List[str]]] = None
     skill_operator: Optional[str] = "and"
+    sub_skill: Optional[Union[str, List[str]]] = None
+    sub_skill_operator: Optional[str] = "or"
+    external_designation: Optional[Union[str, List[str]]] = None
+    external_designation_operator: Optional[str] = "or"
     reviewed_proficiency: Optional[str] = None
     is_core_skill: Optional[bool] = None
 
