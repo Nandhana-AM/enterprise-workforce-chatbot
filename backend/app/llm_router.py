@@ -27,6 +27,8 @@ Output format must be a single valid JSON block with these keys:
   "filters": {
     "designation": string or array of strings or null,
     "designation_operator": "and" | "or" | null,
+    "department": string or array of strings or null,
+    "department_operator": "and" | "or" | null,
     "location": string or array of strings or null,  // corresponds to Cluster
     "location_operator": "and" | "or" | null,
     "band": string or array of strings or null,
@@ -76,6 +78,14 @@ IMPORTANT — Designation vs Skill/Sub-Skill rules:
     - "civil" -> "(Civil)" (e.g. "Construction Manager in Civil" -> "Construction Manager (Civil)", "Construction Manager Civil" -> "Construction Manager (Civil)")
 - "skill" and "sub_skill" are for skills listed on the skill sheet.
   - If a user asks "people who know project management", "people who know about managing projects", or "people with project management skills", this is a skill check. Set "skill" to "Project Management" and do NOT set "designation" to "Project Manager".
+
+IMPORTANT — Designation vs Department rules:
+- "department" is for the specific department or discipline (e.g. "CIVIL", "MECH", "ELEC", "QA/QC", "QUALITY", "PLANNING", "EHS", "CONTRACTS", "FACADE", "FORMWORKS", "MEP", "P&M", "STORES", "SURVEY").
+- Use "department" when the user specifies a department explicitly (e.g. "in the civil department", "in mechanical department", "in ELEC").
+  - If a user asks for "engineers in the civil department", set "designation" to "Engineer" and "department" to "CIVIL".
+  - If a user asks for "civil engineers", you can set "designation" to "Civil Engineer" (which works via role matching).
+  - If a user asks generally for "quality department" or "quality", set "department" to "QUALITY" (which is configured to return both QUALITY and QA/QC department employees).
+  - If a user asks specifically for "QA/QC" department or "QA/QC", set "department" to "QA/QC" (which returns only QA/QC department employees, excluding general quality roles).
 
 IMPORTANT — Designation vs External Designation (Past/Prior Experience):
 - Use "designation" for current designation (e.g. "who are civil engineers", "show civil engineers in Delhi").
@@ -258,6 +268,8 @@ def _fallback_to_rules(query: str, warning_msg: str) -> Dict[str, Any]:
     filters = {
         "designation": parsed["designation"],
         "designation_operator": parsed.get("designation_operator", "or"),
+        "department": parsed.get("department"),
+        "department_operator": parsed.get("department_operator", "or"),
         "location": parsed["location"],
         "location_operator": parsed.get("location_operator", "or"),
         "band": parsed.get("band"),

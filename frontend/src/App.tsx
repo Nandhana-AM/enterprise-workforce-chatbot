@@ -205,7 +205,7 @@ export default function App() {
         body: JSON.stringify({
           session_id: sessionId,
           message: userText,
-          top_k: 10
+          top_k: 500
         })
       })
 
@@ -379,7 +379,9 @@ export default function App() {
           <div className="filter-tag-container">
             {Object.entries(activeFilters).map(([key, val]) => (
               <span key={key} className="filter-tag">
-                {key.replace('_', ' ')}: {String(val)}
+                {key === 'bu' || key === 'sbg' 
+                  ? key.toUpperCase() 
+                  : key.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}: {String(val)}
               </span>
             ))}
           </div>
@@ -432,8 +434,8 @@ export default function App() {
           )}
 
           {messages.map(msg => (
-            <div key={msg.id} className={`msg-row ${msg.sender}`}>
-              <div className="msg-bubble">
+            <div key={msg.id} className={`msg-row ${msg.sender} ${msg.results && msg.results.length > 0 ? 'has-results' : ''}`}>
+              <div className={`msg-bubble ${msg.results && msg.results.length > 0 ? 'results-bubble' : ''}`}>
                 <div>{msg.text}</div>
 
                 {/* Search Result Profile Cards */}

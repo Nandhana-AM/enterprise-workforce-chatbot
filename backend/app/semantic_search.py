@@ -1,7 +1,7 @@
 import numpy as np
 import faiss
 from sentence_transformers import SentenceTransformer
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Optional
 from backend.app.config import settings
 
 class SemanticSearchEngine:
@@ -40,7 +40,7 @@ class SemanticSearchEngine:
         
         self.is_initialized = True
 
-    def search(self, query: str, top_k: int = 10) -> List[Dict[str, Any]]:
+    def search(self, query: str, top_k: Optional[int] = 500) -> List[Dict[str, Any]]:
         """
         Performs semantic similarity search over the indexed profiles.
         Adds 'similarity_score' field to the returned profiles.
@@ -56,7 +56,7 @@ class SemanticSearchEngine:
         faiss.normalize_L2(query_vector)
         
         # 2. Search FAISS index
-        k = min(top_k, len(self.profiles_map))
+        k = len(self.profiles_map) if top_k is None else min(top_k, len(self.profiles_map))
         scores, indices = self.index.search(query_vector, k)
         
         results = []

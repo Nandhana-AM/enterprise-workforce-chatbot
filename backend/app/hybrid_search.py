@@ -1,4 +1,4 @@
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from backend.app.structured_search import structured_search
 from backend.app.semantic_search import semantic_search_engine
 
@@ -6,7 +6,7 @@ def hybrid_search(
     profiles: List[Dict[str, Any]], 
     query: str, 
     filters: Dict[str, Any], 
-    top_k: int = 10
+    top_k: Optional[int] = 500
 ) -> List[Dict[str, Any]]:
     """
     Intelligently combines structured filters and semantic search.
@@ -45,4 +45,6 @@ def hybrid_search(
             p["similarity_score"] = 0.0
             
     # Return top_k
-    return filtered_profiles[:top_k]
+    if top_k is not None:
+        return filtered_profiles[:top_k]
+    return filtered_profiles

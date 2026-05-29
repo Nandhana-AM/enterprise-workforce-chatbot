@@ -1,5 +1,42 @@
 import pandas as pd
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
+import re
+
+def extract_department(designation: str) -> Optional[str]:
+    if not designation:
+        return None
+    desig_upper = designation.upper()
+    
+    # 1. Check for direct department keyword in designation first
+    if "QA/QC" in desig_upper:
+        return "QA/QC"
+    if "QUALITY" in desig_upper:
+        return "QUALITY"
+    if "CIVIL" in desig_upper:
+        return "CIVIL"
+    if "MECH" in desig_upper or "MECHANICAL" in desig_upper:
+        return "MECH"
+    if "ELEC" in desig_upper or "ELECTRICAL" in desig_upper:
+        return "ELEC"
+    if "PLANNING" in desig_upper:
+        return "PLANNING"
+    if "FORMWORK" in desig_upper or "FORMWORKS" in desig_upper:
+        return "FORMWORKS"
+    if "FACADE" in desig_upper:
+        return "FACADE"
+    if "FINISH" in desig_upper or "FINISHES" in desig_upper:
+        return "FINISHES"
+    if "EHS" in desig_upper:
+        return "EHS"
+    if "MEP" in desig_upper:
+        return "MEP"
+    
+    # 2. Match content inside parentheses as fallback, e.g. "DGM (MECH)" -> "MECH"
+    match = re.search(r"\(([^)]+)\)", designation)
+    if match:
+        return match.group(1).strip().upper()
+    
+    return None
 
 def build_employee_profiles(cleaned_dfs: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
     """
@@ -61,6 +98,7 @@ def build_employee_profiles(cleaned_dfs: Dict[str, pd.DataFrame]) -> List[Dict[s
             "cadre": row["Cadre"],
             "band": row["Band"],
             "designation": row["Designation"],
+            "department": extract_department(row["Designation"]),
             "total_exp": float(row["Total Exp"]),
             "internal_exp_years": float(row["Internal Exp"]),
             "external_exp_years": float(row["External Exp"]),
@@ -99,6 +137,8 @@ def _generate_semantic_summary(profile: Dict[str, Any]) -> str:
     # Name and Role info
     parts.append(f"Name: {profile['staff_name']}.")
     parts.append(f"Designation: {profile['designation']}.")
+    if profile.get("department"):
+        parts.append(f"Department: {profile['department']}.")
     parts.append(f"Cadre: {profile['cadre']}. Band: {profile['band']}.")
     parts.append(f"BU: {profile['bu']}. SBG: {profile['sbg']}. Cluster: {profile['cluster']}.")
     parts.append(f"Total Experience: {profile['total_exp']} years (Internal: {profile['internal_exp_years']} years, External: {profile['external_exp_years']} years).")

@@ -4,13 +4,15 @@ from typing import Dict, Any, Optional, List
 class ChatRequest(BaseModel):
     session_id: str = Field(..., description="Unique session identifier for managing conversation state")
     message: str = Field(..., description="User message/query in natural language")
-    top_k: Optional[int] = Field(default=10, description="Limit of search results to return")
+    top_k: Optional[int] = Field(default=500, description="Limit of search results to return")
 
 from typing import Dict, Any, Optional, List, Union
 
 class SearchFilters(BaseModel):
     designation: Optional[Union[str, List[str]]] = None
     designation_operator: Optional[str] = "or"
+    department: Optional[Union[str, List[str]]] = None
+    department_operator: Optional[str] = "or"
     location: Optional[Union[str, List[str]]] = None
     location_operator: Optional[str] = "or"
     band: Optional[Union[str, List[str]]] = None
@@ -45,15 +47,15 @@ class SearchFilters(BaseModel):
 class StructuredSearchRequest(BaseModel):
     session_id: str
     filters: SearchFilters
-    top_k: Optional[int] = 10
+    top_k: Optional[int] = 500
 
 class SemanticSearchRequest(BaseModel):
     session_id: str
     query: str
-    top_k: Optional[int] = 10
+    top_k: Optional[int] = 500
 
 class HybridSearchRequest(BaseModel):
     session_id: str
     query: str
     filters: SearchFilters
-    top_k: Optional[int] = 10
+    top_k: Optional[int] = 500

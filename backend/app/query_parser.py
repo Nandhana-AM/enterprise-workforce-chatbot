@@ -139,6 +139,14 @@ REFINEMENT_TRIGGERS = [
     r"\bonly\b", r"\balso\b", r"\bfilter\b", r"\brefine\b", r"\badd\b", r"\bwith\b"
 ]
 
+SKILL_STOP_WORDS = {
+    "the", "a", "an", "in", "on", "at", "to", "for", "with", "by", "of", "and", "or", "but", "from",
+    "is", "are", "was", "were", "be", "been", "have", "has", "had", "do", "does", "did",
+    "this", "that", "these", "those", "they", "them", "their", "he", "him", "his", "she", "her",
+    "it", "its", "we", "us", "our", "you", "your", "who", "whom", "whose", "which", "what",
+    "department", "dept"
+}
+
 SKILLS = ["project management", "civil engineering", "electrical engineering", "digital & it", "mechanical engineering"]
 SUB_SKILLS = []
 
@@ -415,6 +423,8 @@ def parse_query_rules(query: str) -> Dict[str, Any]:
         "intent": IntentType.UNKNOWN,
         "designation": None,
         "designation_operator": "or",
+        "department": None,
+        "department_operator": "or",
         "location": None,
         "location_operator": "or",
         "band": None,
@@ -526,6 +536,66 @@ def parse_query_rules(query: str) -> Dict[str, Any]:
         result["external_designation"] = external_designation_matches[0] if len(external_designation_matches) == 1 else external_designation_matches
         result["external_designation_operator"] = detect_operator(q_clean, external_designation_matches, "or")
             
+    # 2b. Department extraction
+    dept_terms = {
+        "contracts administration": "CONTRACTS ADMINISTRATION",
+        "contracts": "CONTRACTS",
+        "accounts": "ACCOUNTS",
+        "billing": "BILLING",
+        "business development": "BUSINESS DEVELOPMENT",
+        "civil": "CIVIL",
+        "ehs": "EHS",
+        "electrical": "ELEC",
+        "elec": "ELEC",
+        "elv & ict": "ELV & ICT",
+        "elv": "ELV & ICT",
+        "ict": "ELV & ICT",
+        "facade": "FACADE",
+        "finishing": "FINISHES",
+        "finishes": "FINISHES",
+        "formwork": "FORMWORKS",
+        "formworks": "FORMWORKS",
+        "geotechnical": "GEOTECHNICAL",
+        "hvac": "HVAC",
+        "mechanical": "MECH",
+        "mech": "MECH",
+        "mep": "MEP",
+        "o&m": "O&M",
+        "p&m": "P&M",
+        "planning": "PLANNING",
+        "precast": "PRECAST",
+        "procurement": "PROCUREMENT",
+        "public health": "PUBLIC HEALTH",
+        "quality assurance": "QA/QC",
+        "quality control": "QA/QC",
+        "quality": "QUALITY",
+        "qa/qc": "QA/QC",
+        "qa": "QA/QC",
+        "qc": "QA/QC",
+        "quantity survey": "QUANTITY SURVEY",
+        "quantity surveying": "QUANTITY SURVEY",
+        "steel structure": "STEEL STRUCTURE",
+        "stores": "STORES",
+        "survey": "SURVEY"
+    }
+    
+    department_matches = []
+    for term in sorted(dept_terms.keys(), key=lambda t: len(t), reverse=True):
+        matched, updated = match_and_consume_keyword(term, query_tokens)
+        if matched:
+            dept_name = dept_terms[term]
+            if dept_name not in department_matches:
+                department_matches.append(dept_name)
+            query_tokens = updated
+            # Consume "department" and "dept" from query_tokens if they exist
+            for d_word in ["department", "dept"]:
+                while d_word in query_tokens:
+                    query_tokens.remove(d_word)
+            
+    if department_matches:
+        result["department"] = department_matches[0] if len(department_matches) == 1 else department_matches
+        result["department_operator"] = detect_operator(q_clean, department_matches, "or")
+
     # 3. Location/Cluster extraction
     location_matches = []
     for loc in sorted(CLUSTERS, key=lambda l: (len(get_query_tokens(l)), len(l)), reverse=True):
@@ -811,7 +881,7 @@ def parse_query_rules(query: str) -> Dict[str, Any]:
             skill_captured = skill_captured[3:].strip()
             
         skill_parts = SKILL_SPLIT_RE.split(skill_captured)
-        regex_skills = [s.strip().title() for s in skill_parts if s.strip()]
+        regex_skills = [s.strip().title() for s in skill_parts if s.strip() and s.strip().lower() not in SKILL_STOP_WORDS]
         for rs in regex_skills:
             # Check if this rs matches any known sub-skill
             is_sub = False
@@ -850,6 +920,7 @@ def parse_query_rules(query: str) -> Dict[str, Any]:
     
     has_structured = any([
         result["designation"],
+        result["department"],
         result["external_designation"],
         result["location"],
         result["band"],

@@ -222,6 +222,46 @@ def structured_search(profiles: List[Dict[str, Any]], filters: Dict[str, Any]) -
                 if not any(matches_list):
                     match = False
 
+        # 1c. Department Filter (case-insensitive substring/equality match on extracted department)
+        if match and filters.get("department"):
+            dept_filter = filters["department"]
+            dept_queries = dept_filter if isinstance(dept_filter, list) else [dept_filter]
+            dept_op = filters.get("department_operator", "or")
+            
+            dept_map = {
+                "CIVIL": "CIVIL",
+                "MECHANICAL": "MECH",
+                "MECH": "MECH",
+                "ELECTRICAL": "ELEC",
+                "ELEC": "ELEC",
+                "QUALITY": "QUALITY",
+                "QUALITY CONTROL": "QA/QC",
+                "QUALITY ASSURANCE": "QA/QC",
+                "QA/QC": "QA/QC",
+                "QA": "QA/QC",
+                "QC": "QA/QC",
+            }
+            
+            matches_list = []
+            for dq in dept_queries:
+                dq_norm = str(dq).upper().strip()
+                dq_mapped = dept_map.get(dq_norm, dq_norm)
+                p_dept = str(p.get("department", "")).upper()
+                
+                if dq_mapped == "QUALITY":
+                    # General Quality query matches both QUALITY and QA/QC departments
+                    single_match = (p_dept == "QUALITY") or (p_dept == "QA/QC")
+                else:
+                    single_match = (dq_mapped == p_dept) or (dq_mapped in p_dept)
+                matches_list.append(single_match)
+                
+            if dept_op == "and":
+                if not all(matches_list):
+                    match = False
+            else:  # "or"
+                if not any(matches_list):
+                    match = False
+
         # 2. Band Filter (case-insensitive substring/normalized)
         if match and filters.get("band"):
             band_filter = filters["band"]
