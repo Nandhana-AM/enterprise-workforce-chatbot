@@ -1,4 +1,5 @@
 import os
+from pydantic import ConfigDict
 from pydantic_settings import BaseSettings
 from typing import Optional
 
@@ -17,8 +18,6 @@ class Settings(BaseSettings):
     # Default file path
     DEFAULT_EXCEL_PATH: str = "synthetic_skill_dataset.xlsx"
 
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
+    model_config = ConfigDict(env_file=".env", env_file_encoding="utf-8")
 
 settings = Settings()

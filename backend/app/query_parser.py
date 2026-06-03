@@ -1,40 +1,7 @@
 import re
 from typing import Dict, Any, Optional, List
 from enum import Enum
-
-def normalize_val(val: Any) -> str:
-    if val is None:
-        return ""
-    return re.sub(r"[\s\-\.]", "", str(val)).lower()
-
-
-def normalize_desig_abbreviations(text: str) -> str:
-    text = text.lower()
-    # Insert space around parentheses if missing, e.g. "manager(finishes)" -> "manager (finishes)"
-    text = re.sub(r"([^\s])\(", r"\1 (", text)
-    text = re.sub(r"\)([^\s])", r") \1", text)
-    
-    # Normalize spaces after dot/hyphen first for designations
-    text = re.sub(r"\b(asst|sr|jr|mgr|dgm|jgm)\.([a-zA-Z])", r"\1. \2", text)
-    text = re.sub(r"([a-zA-Z])\-([a-zA-Z])", r"\1 - \2", text)
-    
-    # Replace abbreviations with standard forms
-    text = re.sub(r"\b(asst|assistant)\b\.?", "assistant", text)
-    text = re.sub(r"\b(sr|senior)\b\.?", "senior", text)
-    text = re.sub(r"\b(jr|junior)\b\.?", "junior", text)
-    text = re.sub(r"\bdgm\b", "deputy general manager", text)
-    text = re.sub(r"\bjgm\b", "joint general manager", text)
-    text = re.sub(r"\bmgr\b", "manager", text)
-    
-    # Map mechanical -> mech, electrical -> elec
-    text = re.sub(r"\bmechanical\b", "mech", text)
-    text = re.sub(r"\belectrical\b", "elec", text)
-    
-    # Map prepositions connecting designation to discipline
-    text = re.sub(r"\bin\s+mech\b", " (mech)", text)
-    text = re.sub(r"\bin\s+elec\b", " (elec)", text)
-    text = re.sub(r"\bin\s+civil\b", " (civil)", text)
-    return text
+from backend.app.structured_search import normalize_val, normalize_desig_abbreviations
 
 
 

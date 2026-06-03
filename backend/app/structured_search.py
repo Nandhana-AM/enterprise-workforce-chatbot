@@ -5,6 +5,23 @@ NORMALIZE_RE = re.compile(r"[\s\-\.]")
 WORD_RE = re.compile(r"\b\w+\b")
 DESIGNATION_STOP_WORDS = {"in", "of", "for", "and", "or", "with"}
 
+# Precompiled regular expressions for normalize_desig_abbreviations
+PAREN_L_RE = re.compile(r"([^\s])\(")
+PAREN_R_RE = re.compile(r"\)([^\s])")
+DESIG_DOT_RE = re.compile(r"\b(asst|sr|jr|mgr|dgm|jgm)\.([a-zA-Z])")
+HYPHEN_SPACE_RE = re.compile(r"([a-zA-Z])\-([a-zA-Z])")
+ASST_RE = re.compile(r"\b(asst|assistant)\b\.?")
+SR_RE = re.compile(r"\b(sr|senior)\b\.?")
+JR_RE = re.compile(r"\b(jr|junior)\b\.?")
+DGM_RE = re.compile(r"\bdgm\b")
+JGM_RE = re.compile(r"\bjgm\b")
+MGR_RE = re.compile(r"\bmgr\b")
+MECH_RE = re.compile(r"\bmechanical\b")
+ELEC_RE = re.compile(r"\belectrical\b")
+IN_MECH_RE = re.compile(r"\bin\s+mech\b")
+IN_ELEC_RE = re.compile(r"\bin\s+elec\b")
+IN_CIVIL_RE = re.compile(r"\bin\s+civil\b")
+
 def normalize_val(val: Any) -> str:
     if val is None:
         return ""
@@ -24,29 +41,29 @@ def stem_word(w: str) -> str:
 def normalize_desig_abbreviations(text: str) -> str:
     text = text.lower()
     # Insert space around parentheses if missing, e.g. "manager(finishes)" -> "manager (finishes)"
-    text = re.sub(r"([^\s])\(", r"\1 (", text)
-    text = re.sub(r"\)([^\s])", r") \1", text)
+    text = PAREN_L_RE.sub(r"\1 (", text)
+    text = PAREN_R_RE.sub(r") \1", text)
     
     # Normalize spaces after dot/hyphen first for designations
-    text = re.sub(r"\b(asst|sr|jr|mgr|dgm|jgm)\.([a-zA-Z])", r"\1. \2", text)
-    text = re.sub(r"([a-zA-Z])\-([a-zA-Z])", r"\1 - \2", text)
+    text = DESIG_DOT_RE.sub(r"\1. \2", text)
+    text = HYPHEN_SPACE_RE.sub(r"\1 - \2", text)
     
     # Replace abbreviations with standard forms
-    text = re.sub(r"\b(asst|assistant)\b\.?", "assistant", text)
-    text = re.sub(r"\b(sr|senior)\b\.?", "senior", text)
-    text = re.sub(r"\b(jr|junior)\b\.?", "junior", text)
-    text = re.sub(r"\bdgm\b", "deputy general manager", text)
-    text = re.sub(r"\bjgm\b", "joint general manager", text)
-    text = re.sub(r"\bmgr\b", "manager", text)
+    text = ASST_RE.sub("assistant", text)
+    text = SR_RE.sub("senior", text)
+    text = JR_RE.sub("junior", text)
+    text = DGM_RE.sub("deputy general manager", text)
+    text = JGM_RE.sub("joint general manager", text)
+    text = MGR_RE.sub("manager", text)
     
     # Map mechanical -> mech, electrical -> elec
-    text = re.sub(r"\bmechanical\b", "mech", text)
-    text = re.sub(r"\belectrical\b", "elec", text)
+    text = MECH_RE.sub("mech", text)
+    text = ELEC_RE.sub("elec", text)
     
     # Map prepositions connecting designation to discipline
-    text = re.sub(r"\bin\s+mech\b", " (mech)", text)
-    text = re.sub(r"\bin\s+elec\b", " (elec)", text)
-    text = re.sub(r"\bin\s+civil\b", " (civil)", text)
+    text = IN_MECH_RE.sub(" (mech)", text)
+    text = IN_ELEC_RE.sub(" (elec)", text)
+    text = IN_CIVIL_RE.sub(" (civil)", text)
     return text
 
 

@@ -3,6 +3,7 @@ import time
 import uuid
 import structlog
 from typing import List, Dict, Any
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, UploadFile, File, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -27,10 +28,27 @@ from backend.app.validator import (
 structlog.configure()
 logger = structlog.get_logger()
 
+# Global store for loaded profiles
+DATABASE = {
+    "profiles": [],
+    "loaded": False,
+    "source_file": None
+}
+
+def load_initial_database():
+    """Startup auto-loading of default excel dataset is disabled per user request."""
+    logger.info("startup_db_load_disabled", msg="Default dataset auto-loading on startup is disabled. Awaiting upload.")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    load_initial_database()
+    yield
+
 app = FastAPI(
     title="Enterprise Workforce Intelligence API",
     description="Conversational search backend over relational multi-sheet Excel data.",
-    version="2.0.0"
+    version="2.0.0",
+    lifespan=lifespan
 )
 
 app.add_middleware(
@@ -48,22 +66,6 @@ async def rewrite_api_prefix(request, call_next):
         scope["path"] = request.url.path[4:]
     response = await call_next(request)
     return response
-
-
-# Global store for loaded profiles
-DATABASE = {
-    "profiles": [],
-    "loaded": False,
-    "source_file": None
-}
-
-def load_initial_database():
-    """Startup auto-loading of default excel dataset is disabled per user request."""
-    logger.info("startup_db_load_disabled", msg="Default dataset auto-loading on startup is disabled. Awaiting upload.")
-
-@app.on_event("startup")
-def startup_event():
-    load_initial_database()
 
 # Dependency to check if database is loaded
 def get_database():
