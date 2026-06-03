@@ -17,8 +17,8 @@ Intents:
   Example: "who knows electrical systems", "people with Siemens experience"
 - HYBRID_SEARCH: Query combines both structured filters and unstructured skills/exposures.
   Example: "civil engineers in Chennai with metro exposure"
-- REFINEMENT: User is adding, changing, or clarifying a previous query (e.g. adding a location filter, restricting to core skills).
-  Example: "only Chennai", "only reviewed proficiency", "with PMP certification"
+- REFINEMENT: User is adding, changing, or clarifying a previous query (e.g. adding a location filter, restricting to core skills, or overriding logical operators like changing qualification logic to OR).
+  Example: "only Chennai", "only reviewed proficiency", "with PMP certification", "use OR logic for qualifications", "change certification operator to AND"
 
 Output format must be a single valid JSON block with these keys:
 {
@@ -29,6 +29,8 @@ Output format must be a single valid JSON block with these keys:
     "designation_operator": "and" | "or" | null,
     "department": string or array of strings or null,
     "department_operator": "and" | "or" | null,
+    "exclude_department": string or array of strings or null,
+    "exclude_department_operator": "and" | "or" | null,
     "location": string or array of strings or null,  // corresponds to Cluster
     "location_operator": "and" | "or" | null,
     "band": string or array of strings or null,
@@ -61,6 +63,7 @@ Output format must be a single valid JSON block with these keys:
     "external_designation_operator": "and" | "or" | null,
     "reviewed_proficiency": string or null, // e.g. "Expert", "Proficient", or "reviewed only"
     "is_core_skill": boolean or null,
+    "skill_requirements": array of objects or null, // detailed skill + proficiency constraints
     "skills_text": string or null // the semantic portion of the query
   },
   "clarification_message": string or null
@@ -78,6 +81,16 @@ IMPORTANT — Designation vs Skill/Sub-Skill rules:
     - "civil" -> "(Civil)" (e.g. "Construction Manager in Civil" -> "Construction Manager (Civil)", "Construction Manager Civil" -> "Construction Manager (Civil)")
 - "skill" and "sub_skill" are for skills listed on the skill sheet.
   - If a user asks "people who know project management", "people who know about managing projects", or "people with project management skills", this is a skill check. Set "skill" to "Project Management" and do NOT set "designation" to "Project Manager".
+- Use "skill_requirements" when the query has specific proficiency levels or operators per skill.
+  Format: array of objects:
+  [
+    {
+      "skill": "Execution : Formwork",
+      "proficiency": ["Proficient", "Role Model"],
+      "operator": "or"
+    }
+  ]
+  You can still populate "skill" and "sub_skill" for backward compatibility if you populate "skill_requirements".
 
 IMPORTANT — Designation vs Department rules:
 - "department" is for the specific department or discipline (e.g. "CIVIL", "MECH", "ELEC", "QA/QC", "QUALITY", "PLANNING", "EHS", "CONTRACTS", "FACADE", "FORMWORKS", "MEP", "P&M", "STORES", "SURVEY").
@@ -86,6 +99,9 @@ IMPORTANT — Designation vs Department rules:
   - If a user asks for "civil engineers", you can set "designation" to "Civil Engineer" (which works via role matching).
   - If a user asks generally for "quality department" or "quality", set "department" to "QUALITY" (which is configured to return both QUALITY and QA/QC department employees).
   - If a user asks specifically for "QA/QC" department or "QA/QC", set "department" to "QA/QC" (which returns only QA/QC department employees, excluding general quality roles).
+- "exclude_department" is for department names that should be EXCLUDED from the search results (e.g. "QUALITY", "CIVIL").
+  - If a user says "except those in Quality", set "exclude_department" to "QUALITY".
+  - If a user says "exclude people from quality and civil department", set "exclude_department" to ["QUALITY", "CIVIL"] and "exclude_department_operator" to "or".
 
 IMPORTANT — Designation vs External Designation (Past/Prior Experience):
 - Use "designation" for current designation (e.g. "who are civil engineers", "show civil engineers in Delhi").
@@ -270,6 +286,8 @@ def _fallback_to_rules(query: str, warning_msg: str) -> Dict[str, Any]:
         "designation_operator": parsed.get("designation_operator", "or"),
         "department": parsed.get("department"),
         "department_operator": parsed.get("department_operator", "or"),
+        "exclude_department": parsed.get("exclude_department"),
+        "exclude_department_operator": parsed.get("exclude_department_operator", "or"),
         "location": parsed["location"],
         "location_operator": parsed.get("location_operator", "or"),
         "band": parsed.get("band"),
@@ -302,6 +320,7 @@ def _fallback_to_rules(query: str, warning_msg: str) -> Dict[str, Any]:
         "external_designation_operator": parsed.get("external_designation_operator", "or"),
         "reviewed_proficiency": parsed["reviewed_proficiency"],
         "is_core_skill": parsed["is_core_skill"],
+        "skill_requirements": parsed.get("skill_requirements"),
         "skills_text": query
     }
     

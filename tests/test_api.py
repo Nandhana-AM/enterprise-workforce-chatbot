@@ -615,4 +615,62 @@ def test_semantic_precision_electrician_current_included():
     assert body["results"][0]["Name"] == "Lewis Curry"
 
 
+def test_qualification_dots_spaces_and_missing_staff():
+    # 1. Test space after dot query normalization
+    from backend.app.query_parser import parse_query_rules
+    res = parse_query_rules("find people with B. Tech and B. E. and M. Tech")
+    assert set(res["qualification"]) == {"B.Tech", "B.E.", "M.Tech"}
+
+    # 2. Test ITI Fitter & SSC matching
+    from backend.app.structured_search import structured_search
+    mock_profiles = [
+        {
+            "ps_no": 9901,
+            "staff_name": "Test Fitter",
+            "qualifications": [
+                {"Description": "ITI Fitter"},
+                {"Description": "Secondary School Certificate (SSC)"}
+            ],
+            "certifications": [],
+            "segment_exposure": [],
+            "external_experience": [],
+            "skills": []
+        }
+    ]
+    # Match using "iti fitter" and "ssc" with AND operator
+    matched = structured_search(mock_profiles, {"qualification": ["iti fitter", "ssc"], "qualification_operator": "and"})
+    assert len(matched) == 1
+    assert matched[0]["ps_no"] == 9901
+
+    # Match using just "fitter" and "ssc" with AND operator
+    matched_fitter_ssc = structured_search(mock_profiles, {"qualification": ["fitter", "ssc"], "qualification_operator": "and"})
+    assert len(matched_fitter_ssc) == 1
+
+    # 3. Test join engine for missing staff master record
+    import pandas as pd
+    from backend.app.join_engine import build_employee_profiles
+    cleaned_dfs = {
+        "Staff_Master": pd.DataFrame(columns=["PS No", "Staff Name", "Email ID", "Mobile", "Cadre", "Band", "Designation",
+                                             "Total Exp", "Internal Exp", "External Exp", "Job Code", "Job Name",
+                                             "Cluster", "BU", "SBG", "IS PS No", "IS Name", "IS Email ID"]),
+        "Internal_Exp": pd.DataFrame(columns=["PS No", "Org", "From", "To"]),
+        "External_Exp": pd.DataFrame(columns=["PS No", "Org", "Designation", "From", "To"]),
+        "Segment_Exposure": pd.DataFrame(columns=["PS No", "Segment", "Sub-Segment"]),
+        "Skill_Proficiency": pd.DataFrame(columns=["PS No", "Staff Name", "Skill", "Sub-Skill", "User_Declared_Proficiency",
+                                                   "Reviewed_Proficiency", "Is_Core_Skill"]),
+        "Job_Skill_Mapping": pd.DataFrame(columns=["PS No", "Org", "Skill", "Sub-Skill", "Role", "Reporting Count", "Value"]),
+        "Certification": pd.DataFrame(columns=["PS No", "Certification"]),
+        "Qualification": pd.DataFrame([
+            {"PS No": 11121, "Year": 2003, "Description": "Diploma in Civil Engineering (DCE)"},
+            {"PS No": 11121, "Year": 2000, "Description": "Secondary School Certificate (SSC)"}
+        ])
+    }
+    profiles = build_employee_profiles(cleaned_dfs)
+    assert len(profiles) == 1
+    assert profiles[0]["ps_no"] == 11121
+    assert profiles[0]["staff_name"] == "Employee 11121"
+    assert len(profiles[0]["qualifications"]) == 2
+
+
+
 

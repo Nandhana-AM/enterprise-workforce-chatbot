@@ -11,7 +11,8 @@ HARD_FILTER_KEYS = {
     "qualification", "qualification_groups",
     "segment", "skill", "sub_skill", "sub_skill_operator",
     "external_designation", "external_designation_operator",
-    "reviewed_proficiency", "is_core_skill", "department",
+    "reviewed_proficiency", "is_core_skill", "department", "exclude_department",
+    "skill_requirements",
 }
 
 def _has_active_structured_filters(filters: Dict[str, Any]) -> bool:

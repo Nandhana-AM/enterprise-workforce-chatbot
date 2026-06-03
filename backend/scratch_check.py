@@ -1,24 +1,50 @@
-import pandas as pd
+import re
+from typing import Dict, Any
 
-file_path = r"C:\Users\ASUS\Downloads\Skill_Data_Dump_R1_2026_05_25 - Copy.xlsx"
+class IntentType:
+    UNKNOWN = "UNKNOWN"
+    REFINEMENT = "REFINEMENT"
 
-try:
-    xl = pd.ExcelFile(file_path)
-    df_staff = xl.parse("Staff_Master")
-    
-    print("\nColumns in Staff_Master:")
-    print(df_staff.columns.tolist())
-    
-    print("\nSample rows in Staff_Master (first 5):")
-    print(df_staff.head(5).to_string())
-    
-    # Check if 'Hyderabad' appears anywhere in the entire Staff_Master sheet (case-insensitive)
-    mask = df_staff.astype(str).apply(lambda x: x.str.contains("hyderabad", case=False)).any(axis=1)
-    matching_rows = df_staff[mask]
-    print(f"\nNumber of rows containing 'hyderabad' anywhere in Staff_Master: {len(matching_rows)}")
-    if len(matching_rows) > 0:
-        print("Sample matching rows:")
-        print(matching_rows.head(3).to_string())
-        
-except Exception as e:
-    print("Error:", str(e))
+def parse_operator_refinements(q_clean: str, result: Dict[str, Any]):
+    fields_mapping = {
+        "qualification": r"qualifications?",
+        "certification": r"certifications?|certs?",
+        "location": r"locations?|places?|cities?",
+        "designation": r"designations?|roles?|titles?",
+        "department": r"departments?|depts?",
+        "skill": r"skills?",
+        "sub_skill": r"sub[-_]?skills?"
+    }
+    for field, pattern in fields_mapping.items():
+        if re.search(rf"\b(?:{pattern})\b", q_clean):
+            # Check for OR logic
+            if re.search(rf"\b(?:{pattern})\b.*\b(or logic|operator\s+(?:to\s+)?or|use\s+or|logic\s+(?:to\s+)?or)\b", q_clean) or \
+               re.search(rf"\b(or logic|operator\s+(?:to\s+)?or|use\s+or|logic\s+(?:to\s+)?or)\b.*\b(?:{pattern})\b", q_clean):
+                result[f"{field}_operator"] = "or"
+                result["intent"] = IntentType.REFINEMENT
+            # Check for AND logic
+            elif re.search(rf"\b(?:{pattern})\b.*\b(and logic|operator\s+(?:to\s+)?and|use\s+and|logic\s+(?:to\s+)?and)\b", q_clean) or \
+                 re.search(rf"\b(and logic|operator\s+(?:to\s+)?and|use\s+and|logic\s+(?:to\s+)?and)\b.*\b(?:{pattern})\b", q_clean):
+                result[f"{field}_operator"] = "and"
+                result["intent"] = IntentType.REFINEMENT
+
+queries = [
+    "use OR logic for qualifications",
+    "change qualification operator to OR",
+    "change certification logic to AND",
+    "use OR logic for places"
+]
+
+for q in queries:
+    res = {
+        "intent": IntentType.UNKNOWN,
+        "qualification_operator": "or",
+        "certification_operator": "and",
+        "location_operator": "or"
+    }
+    parse_operator_refinements(q.lower().strip(), res)
+    print(f"Query: '{q}'")
+    print("  Intent:", res["intent"])
+    print("  Qual Op:", res.get("qualification_operator"))
+    print("  Cert Op:", res.get("certification_operator"))
+    print("  Loc Op:", res.get("location_operator"))

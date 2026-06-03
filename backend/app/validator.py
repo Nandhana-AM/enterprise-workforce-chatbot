@@ -13,6 +13,8 @@ class SearchFilters(BaseModel):
     designation_operator: Optional[str] = "or"
     department: Optional[Union[str, List[str]]] = None
     department_operator: Optional[str] = "or"
+    exclude_department: Optional[Union[str, List[str]]] = None
+    exclude_department_operator: Optional[str] = "or"
     location: Optional[Union[str, List[str]]] = None
     location_operator: Optional[str] = "or"
     band: Optional[Union[str, List[str]]] = None
@@ -43,6 +45,7 @@ class SearchFilters(BaseModel):
     external_designation_operator: Optional[str] = "or"
     reviewed_proficiency: Optional[str] = None
     is_core_skill: Optional[bool] = None
+    skill_requirements: Optional[List[Dict[str, Any]]] = None
 
 class StructuredSearchRequest(BaseModel):
     session_id: str

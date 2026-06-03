@@ -27,8 +27,8 @@ def normalize_desig_abbreviations(text: str) -> str:
     text = re.sub(r"([^\s])\(", r"\1 (", text)
     text = re.sub(r"\)([^\s])", r") \1", text)
     
-    # Normalize spaces after dot/hyphen first
-    text = re.sub(r"\.([a-zA-Z])", r". \1", text)
+    # Normalize spaces after dot/hyphen first for designations
+    text = re.sub(r"\b(asst|sr|jr|mgr|dgm|jgm)\.([a-zA-Z])", r"\1. \2", text)
     text = re.sub(r"([a-zA-Z])\-([a-zA-Z])", r"\1 - \2", text)
     
     # Replace abbreviations with standard forms
@@ -71,25 +71,163 @@ def check_modifier_match(query_text: str, target_desig: str) -> bool:
     return True
 
 
+CANONICAL_QUAL_MAP = {
+    "dce": "dce",
+    "diplomaincivilengineering": "dce",
+    
+    "ssc": "ssc",
+    "secondaryschoolcertificate": "ssc",
+    "secondaryschool": "ssc",
+    
+    "ba": "ba",
+    "bachelorofarts": "ba",
+    
+    "hsc": "hsc",
+    "highersecondarycertificate": "hsc",
+    "highersecondary": "hsc",
+    
+    "be": "be",
+    "bachelorofengineering": "be",
+    
+    "btech": "btech",
+    "bacheloroftechnology": "btech",
+    
+    "mtech": "mtech",
+    "masteroftechnology": "mtech",
+    
+    "mba": "mba",
+    "masterofbusinessadministration": "mba",
+    "mbabusinessadministration": "mba",
+    
+    "phd": "phd",
+    "doctorofphilosophy": "phd",
+    "doctorate": "phd",
+    
+    "me": "me",
+    "masterofengineering": "me",
+    
+    "barch": "barch",
+    "bachelorofarchitecture": "barch",
+    
+    "msc": "msc",
+    "masterofscience": "msc",
+    "masterofscienceinengineering": "msc",
+    "mscengg": "msc",
+    "mscengineering": "msc",
+    
+    "bsc": "bsc",
+    "bachelorofscience": "bsc",
+    "bachelorofscienceengineering": "bsc",
+    "bscengg": "bsc",
+    
+    "mcom": "mcom",
+    "masterofcommerce": "mcom",
+    
+    "bcom": "bcom",
+    "bachelorofcommerce": "bcom",
+    
+    "llb": "llb",
+    "bacheloroflaws": "llb",
+    "bacheloroflaw": "llb",
+    
+    "llm": "llm",
+    "masteroflaws": "llm",
+    "masteroflaw": "llm",
+    
+    "dme": "dme",
+    "diplomainmechanicalengineering": "dme",
+    
+    "deee": "deee",
+    "dee": "deee",
+    "diplomainelectricalandelectronicsengineering": "deee",
+    "diplomainelectricalengineering": "deee",
+    "diplomaelectricalandelectronics": "deee",
+    "diplomaelectricalelectronics": "deee",
+    
+    "dct": "dct",
+    "diplomainconstructiontechnology": "dct",
+    
+    "lce": "lce",
+    "licentiateincivilengineering": "lce",
+    
+    "bca": "bca",
+    "bachelorofcomputerapplication": "bca",
+    "bachelorofcomputerapplications": "bca",
+    
+    "mbl": "mbl",
+    "masterofbusinesslaw": "mbl",
+    
+    "pgdcm": "pgdcm",
+    "postgraduatediplomainconstructionmanagement": "pgdcm",
+    
+    "pgpacm": "pgpacm",
+    "postgraduateprograminadvancedconstructionmanagement": "pgpacm",
+    "postgraduateprogrammeinadvancedconstructionmanagement": "pgpacm",
+    
+    "pgdbm": "pgdbm",
+    "postgraduatediplomainbusinessmanagement": "pgdbm",
+    
+    "pgdhrm": "pgdhrm",
+    "postgraduatediplomainhumanresourcemanagement": "pgdhrm",
+    
+    "pgdpm": "pgdpm",
+    "postgraduatediplomainprojectmanagement": "pgdpm",
+    
+    "pgppm": "pgppm",
+    "postgraduateprograminprojectmanagement": "pgppm",
+    "postgraduateprogrammeinprojectmanagement": "pgppm",
+    
+    "pgppem": "pgppem",
+    "postgraduateprogrammeinprojectengineeringandmanagement": "pgppem",
+    
+    "pgpifdm": "pgpifdm",
+    "postgraduateprogrammeininfrastructurefinancedevelopmentmanagement": "pgpifdm",
+    
+    "pgpqscm": "pgpqscm",
+    "postgraduateprogrammeinquantitysurveyingandcontractmanagement": "pgpqscm",
+    
+    # ITI and trade qualifications
+    "itifitter": "iti fitter",
+    "fitter": "iti fitter",
+    "itisurveyor": "iti surveyor",
+    "ititradecertificate": "iti trade certificate",
+    "itielectrician": "iti electrician",
+    "itimotormechanic": "iti motor mechanic",
+    "itimason": "iti mason",
+    "itidraughtsman": "iti draughtsman",
+    "itidraughtsmancivil": "iti draughtsman",
+}
+
+
 def qual_token_match(query_term: str, description: str) -> bool:
     """
-    Checks if a qualification term matches a description using TOKEN-LEVEL comparison.
-
-    Why not plain substring on normalize_val?
-    normalize_val('m.e') = 'me'. Then 'me' in normalize_val('B.Tech in Mechanical Engineering')
-    = 'me' in 'btechinemechanicalengineering' = TRUE (false positive!).
-
-    Instead: split description by whitespace only, normalize each word separately,
-    then check if any word's normalized form equals the normalized query term.
-    This keeps 'M.E.' as one token -> 'me', and 'Mechanical' as another -> 'mechanical'.
+    Checks if a qualification term matches a description using TOKEN-LEVEL comparison,
+    supporting stripping parentheses/punctuation, alias mapping, and splitting compound tokens.
     """
     q_norm = normalize_val(query_term)
     if not q_norm:
         return False
-    # Split description by whitespace only (preserve dots within tokens like 'B.Tech', 'M.E.')
+        
+    q_canon = CANONICAL_QUAL_MAP.get(q_norm, q_norm)
+    
+    # 1. Check full description canonical match first
+    desc_norm = normalize_val(description)
+    desc_canon = CANONICAL_QUAL_MAP.get(desc_norm, desc_norm)
+    if desc_canon == q_canon:
+        return True
+        
+    # 2. Check token-level match
+    # Split description by whitespace
     for word in description.lower().split():
-        if normalize_val(word) == q_norm:
-            return True
+        # Strip parentheses, brackets, and other common punctuation from the token first
+        word_clean = word.strip("()[]{}.,;:?!\"'")
+        # Split token by hyphens and slashes (e.g. "mtech-construction" -> ["mtech", "construction"])
+        sub_words = re.split(r"[\-/]", word_clean)
+        for sw in sub_words:
+            sw_norm = normalize_val(sw)
+            sw_canon = CANONICAL_QUAL_MAP.get(sw_norm, sw_norm)
+            if sw_canon == q_canon or sw_norm == q_norm:
+                return True
     return False
 
 
@@ -240,6 +378,9 @@ def structured_search(profiles: List[Dict[str, Any]], filters: Dict[str, Any]) -
                 "QA/QC": "QA/QC",
                 "QA": "QA/QC",
                 "QC": "QA/QC",
+                "QA & QC": "QA/QC",
+                "QA&QC": "QA/QC",
+                "QA/ QC": "QA/QC",
             }
             
             matches_list = []
@@ -261,6 +402,46 @@ def structured_search(profiles: List[Dict[str, Any]], filters: Dict[str, Any]) -
             else:  # "or"
                 if not any(matches_list):
                     match = False
+
+        # 1d. Exclude Department Filter (case-insensitive substring/equality match on extracted department)
+        if match and filters.get("exclude_department"):
+            ex_dept_filter = filters["exclude_department"]
+            ex_dept_queries = ex_dept_filter if isinstance(ex_dept_filter, list) else [ex_dept_filter]
+            ex_dept_op = filters.get("exclude_department_operator", "or")
+            
+            dept_map = {
+                "CIVIL": "CIVIL",
+                "MECHANICAL": "MECH",
+                "MECH": "MECH",
+                "ELECTRICAL": "ELEC",
+                "ELEC": "ELEC",
+                "QUALITY": "QUALITY",
+                "QUALITY CONTROL": "QA/QC",
+                "QUALITY ASSURANCE": "QA/QC",
+                "QA/QC": "QA/QC",
+                "QA": "QA/QC",
+                "QC": "QA/QC",
+                "QA & QC": "QA/QC",
+                "QA&QC": "QA/QC",
+                "QA/ QC": "QA/QC",
+            }
+            
+            matches_list = []
+            for eq in ex_dept_queries:
+                eq_norm = str(eq).upper().strip()
+                eq_mapped = dept_map.get(eq_norm, eq_norm)
+                p_dept = str(p.get("department", "")).upper()
+                
+                # Check if employee belongs to this excluded department
+                if eq_mapped == "QUALITY":
+                    is_in_ex_dept = (p_dept == "QUALITY") or (p_dept == "QA/QC")
+                else:
+                    is_in_ex_dept = (eq_mapped == p_dept) or (eq_mapped in p_dept)
+                matches_list.append(is_in_ex_dept)
+                
+            # If the employee belongs to any of the excluded departments, exclude them
+            if any(matches_list):
+                match = False
 
         # 2. Band Filter (case-insensitive substring/normalized)
         if match and filters.get("band"):
@@ -304,7 +485,7 @@ def structured_search(profiles: List[Dict[str, Any]], filters: Dict[str, Any]) -
                 if not any(matches_list):
                     match = False
                 
-        # 4. BU Filter (case-insensitive substring)
+        # 4. BU Filter — keyword-based match (each filter word must appear in p["bu"])
         if match and filters.get("bu"):
             bu_filter = filters["bu"]
             bu_queries = bu_filter if isinstance(bu_filter, list) else [bu_filter]
@@ -312,8 +493,10 @@ def structured_search(profiles: List[Dict[str, Any]], filters: Dict[str, Any]) -
             
             matches_list = []
             for buq in bu_queries:
-                bu_query_clean = str(buq).lower().strip()
-                single_match = bu_query_clean in p["bu"].lower()
+                bu_query_clean = NORMALIZE_RE.sub("", str(buq).lower().strip())
+                profile_bu_norm = NORMALIZE_RE.sub("", p["bu"].lower()) if p.get("bu") else ""
+                # Canonical exact match (after stripping spaces/dashes/dots)
+                single_match = bu_query_clean in profile_bu_norm
                 matches_list.append(single_match)
                 
             if bu_op == "and":
@@ -323,7 +506,7 @@ def structured_search(profiles: List[Dict[str, Any]], filters: Dict[str, Any]) -
                 if not any(matches_list):
                     match = False
                 
-        # 5. SBG Filter (case-insensitive substring)
+        # 5. SBG Filter — keyword-based match
         if match and filters.get("sbg"):
             sbg_filter = filters["sbg"]
             sbg_queries = sbg_filter if isinstance(sbg_filter, list) else [sbg_filter]
@@ -331,8 +514,10 @@ def structured_search(profiles: List[Dict[str, Any]], filters: Dict[str, Any]) -
             
             matches_list = []
             for sbgq in sbg_queries:
-                sbg_query_clean = str(sbgq).lower().strip()
-                single_match = sbg_query_clean in p["sbg"].lower()
+                sbg_query_norm = NORMALIZE_RE.sub("", str(sbgq).lower().strip())
+                profile_sbg_norm = NORMALIZE_RE.sub("", p["sbg"].lower()) if p.get("sbg") else ""
+                # Canonical exact match after normalisation
+                single_match = sbg_query_norm in profile_sbg_norm
                 matches_list.append(single_match)
                 
             if sbg_op == "and":
@@ -508,10 +693,13 @@ def structured_search(profiles: List[Dict[str, Any]], filters: Dict[str, Any]) -
                 match = False
  
         # 13. Skill and Sub-Skill Filter (supporting AND/OR operators, linked with Reviewed Proficiency if present)
+        # NOTE: When skill_requirements is present, it supersedes the legacy skill/sub_skill filters
+        # because skill_requirements uses per-group OR logic (alias expansions) rather than flat AND.
         prof_query = filters.get("reviewed_proficiency")
         prof_query_clean = str(prof_query).lower().strip() if prof_query else None
+        _use_legacy_skill_filter = not filters.get("skill_requirements")
 
-        if match and filters.get("skill"):
+        if match and _use_legacy_skill_filter and filters.get("skill"):
             sk_filter = filters["skill"]
             sk_queries = sk_filter if isinstance(sk_filter, list) else [sk_filter]
             skill_op = filters.get("skill_operator", "and")
@@ -531,7 +719,7 @@ def structured_search(profiles: List[Dict[str, Any]], filters: Dict[str, Any]) -
                 if not any(matches_list):
                     match = False
                 
-        if match and filters.get("sub_skill"):
+        if match and _use_legacy_skill_filter and filters.get("sub_skill"):
             sub_sk_filter = filters["sub_skill"]
             sub_sk_queries = sub_sk_filter if isinstance(sub_sk_filter, list) else [sub_sk_filter]
             sub_sk_op = filters.get("sub_skill_operator", "or")
@@ -569,6 +757,47 @@ def structured_search(profiles: List[Dict[str, Any]], filters: Dict[str, Any]) -
             if not core_match:
                 match = False
                 
+        # 16. Skill Requirements Filter
+        if match and filters.get("skill_requirements"):
+            reqs = filters["skill_requirements"]
+            for req in reqs:
+                # Support new `skills` list (OR-group of alias expansions) and legacy `skill` string
+                req_skill_list = req.get("skills") or ([req.get("skill")] if req.get("skill") else [])
+                req_profs = req.get("proficiency")
+                req_op = req.get("operator", "or")
+                
+                # Employee must match ANY skill in the group (OR across alias expansions)
+                # and satisfy the proficiency constraint for that matched skill record
+                has_matching_skill = False
+                for req_skill in req_skill_list:
+                    if has_matching_skill:
+                        break
+                    for s in p.get("skills", []):
+                        # Check skill name match
+                        if skill_match_record(s, req_skill, check_sub_only=False, prof_query=None):
+                            # If proficiencies are specified, we must match them
+                            if req_profs:
+                                prof_matches = [
+                                    prof_match_record(s, p_level.lower().strip())
+                                    for p_level in req_profs
+                                ]
+                                if req_op == "and":
+                                    if all(prof_matches):
+                                        has_matching_skill = True
+                                        break
+                                else: # "or"
+                                    if any(prof_matches):
+                                        has_matching_skill = True
+                                        break
+                            else:
+                                # No proficiency constraint, matching the skill name is enough
+                                has_matching_skill = True
+                                break
+                            
+                if not has_matching_skill:
+                    match = False
+                    break
+
         if match:
             filtered.append(p)
             

@@ -22,9 +22,30 @@ def format_search_response(
     active_filters_display = []
     active_filters_clean = {}
     
+    has_requirements = bool(filters.get("skill_requirements"))
     for k, val in filters.items():
         if val is not None and val != "" and val != False and k != "skills_text":
             if k.endswith("_operator"):
+                continue
+            if has_requirements and k in ("skill", "sub_skill", "reviewed_proficiency"):
+                continue
+
+            if k == "skill_requirements":
+                req_strs = []
+                for req in val:
+                    # Support both new `skills` list and legacy `skill` string
+                    skill_list = req.get("skills") or ([req.get("skill")] if req.get("skill") else [])
+                    profs = req.get("proficiency")
+                    op = req.get("operator", "or")
+                    skill_label = " or ".join(skill_list) if len(skill_list) > 1 else (skill_list[0] if skill_list else "")
+                    if profs:
+                        prof_str = f" ({f' {op} '.join(profs)})"
+                    else:
+                        prof_str = ""
+                    req_strs.append(f"{skill_label}{prof_str}")
+                display_str = " & ".join(req_strs)
+                active_filters_clean[k] = display_str
+                active_filters_display.append(f"Skills: {display_str}")
                 continue
 
             # Handle grouped filters: qualification_groups / certification_groups
@@ -45,9 +66,9 @@ def format_search_response(
                 if not op:
                     op = "and" if k in ["certification", "skill"] else "or"
                 connector = " & " if op == "and" else " or "
-                active_filters_clean[k] = connector.join(str(item).upper() if k == "certification" else str(item).title() for item in val)
+                active_filters_clean[k] = connector.join(str(item).upper() if k in ["certification", "department", "exclude_department"] else str(item).title() for item in val)
             else:
-                if k in ["certification", "department"]:
+                if k in ["certification", "department", "exclude_department"]:
                     active_filters_clean[k] = str(val).upper()
                 elif k in ["designation", "location", "qualification", "segment", "bu", "sbg", "cadre", "band", "skill", "sub_skill", "external_designation"]:
                     active_filters_clean[k] = str(val).title()
@@ -65,9 +86,9 @@ def format_search_response(
                     if not op:
                         op = "and" if k in ["certification", "skill"] else "or"
                     connector = " & " if op == "and" else " or "
-                    formatted_val = connector.join(str(item).upper() if k in ["certification", "department"] else str(item) for item in val)
+                    formatted_val = connector.join(str(item).upper() if k in ["certification", "department", "exclude_department"] else str(item) for item in val)
                 else:
-                    formatted_val = str(val).upper() if k in ["certification", "department"] else str(val)
+                    formatted_val = str(val).upper() if k in ["certification", "department", "exclude_department"] else str(val)
                 label = k.replace("_", " ").title()
                 if label == "Sub Skill":
                     label = "Sub-Skill"
@@ -100,6 +121,7 @@ def format_search_response(
         "message": message,
         "results_count": count,
         "active_filters": active_filters_clean,
+        "raw_filters": filters,
         "results": serialized_results
     }
 

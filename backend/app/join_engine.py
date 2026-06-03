@@ -8,7 +8,7 @@ def extract_department(designation: str) -> Optional[str]:
     desig_upper = designation.upper()
     
     # 1. Check for direct department keyword in designation first
-    if "QA/QC" in desig_upper:
+    if re.search(r"\bQA\s*(?:/|&)\s*QC\b|\bQA&QC\b|\bQA\b|\bQC\b", desig_upper):
         return "QA/QC"
     if "QUALITY" in desig_upper:
         return "QUALITY"
@@ -75,10 +75,20 @@ def build_employee_profiles(cleaned_dfs: Dict[str, pd.DataFrame]) -> List[Dict[s
         
     qual_grouped = get_grouped_records(qual_df)
 
-    # 2. Iterate Staff Master and assemble profiles
-    profiles = []
+    # 2. Collect all unique PS numbers across all sheets
+    all_ps_nos = set()
+    for sheet_name, df in cleaned_dfs.items():
+        if "PS No" in df.columns:
+            all_ps_nos.update(int(x) for x in df["PS No"].dropna().unique())
+            
+    # Map staff master rows by PS No for quick lookup
+    staff_by_ps = {}
     for _, row in staff_df.iterrows():
-        ps_no = int(row["PS No"])
+        staff_by_ps[int(row["PS No"])] = row
+
+    profiles = []
+    for ps_no in sorted(list(all_ps_nos)):
+        row = staff_by_ps.get(ps_no)
         
         # Pull grouped records or return default empty list
         internal_exp = internal_grouped.get(ps_no, [])
@@ -89,37 +99,70 @@ def build_employee_profiles(cleaned_dfs: Dict[str, pd.DataFrame]) -> List[Dict[s
         certifications = cert_grouped.get(ps_no, [])
         qualifications = qual_grouped.get(ps_no, [])
         
-        # Build unified record
-        profile = {
-            "ps_no": ps_no,
-            "staff_name": row["Staff Name"],
-            "email_id": row["Email ID"],
-            "mobile": row["Mobile"],
-            "cadre": row["Cadre"],
-            "band": row["Band"],
-            "designation": row["Designation"],
-            "department": extract_department(row["Designation"]),
-            "total_exp": float(row["Total Exp"]),
-            "internal_exp_years": float(row["Internal Exp"]),
-            "external_exp_years": float(row["External Exp"]),
-            "job_code": row["Job Code"],
-            "job_name": row["Job Name"],
-            "cluster": row["Cluster"],
-            "bu": row["BU"],
-            "sbg": row["SBG"],
-            "manager": {
-                "ps_no": int(row["IS PS No"]) if pd.notna(row["IS PS No"]) else None,
-                "name": row["IS Name"],
-                "email_id": row["IS Email ID"]
-            },
-            "internal_experience": internal_exp,
-            "external_experience": external_exp,
-            "segment_exposure": segments,
-            "skills": skills,
-            "job_skill_mappings": job_mappings,
-            "certifications": certifications,
-            "qualifications": qualifications,
-        }
+        if row is not None:
+            # Build unified record with Staff Master info
+            profile = {
+                "ps_no": ps_no,
+                "staff_name": row["Staff Name"],
+                "email_id": row["Email ID"],
+                "mobile": row["Mobile"],
+                "cadre": row["Cadre"],
+                "band": row["Band"],
+                "designation": row["Designation"],
+                "department": extract_department(row["Designation"]),
+                "total_exp": float(row["Total Exp"]),
+                "internal_exp_years": float(row["Internal Exp"]),
+                "external_exp_years": float(row["External Exp"]),
+                "job_code": row["Job Code"],
+                "job_name": row["Job Name"],
+                "cluster": row["Cluster"],
+                "bu": row["BU"],
+                "sbg": row["SBG"],
+                "manager": {
+                    "ps_no": int(row["IS PS No"]) if pd.notna(row["IS PS No"]) else None,
+                    "name": row["IS Name"],
+                    "email_id": row["IS Email ID"]
+                },
+                "internal_experience": internal_exp,
+                "external_experience": external_exp,
+                "segment_exposure": segments,
+                "skills": skills,
+                "job_skill_mappings": job_mappings,
+                "certifications": certifications,
+                "qualifications": qualifications,
+            }
+        else:
+            # Fallback record for employee missing from Staff Master
+            profile = {
+                "ps_no": ps_no,
+                "staff_name": f"Employee {ps_no}",
+                "email_id": "",
+                "mobile": "",
+                "cadre": "",
+                "band": "",
+                "designation": "Unknown Designation",
+                "department": None,
+                "total_exp": 0.0,
+                "internal_exp_years": 0.0,
+                "external_exp_years": 0.0,
+                "job_code": "",
+                "job_name": "",
+                "cluster": "",
+                "bu": "",
+                "sbg": "",
+                "manager": {
+                    "ps_no": None,
+                    "name": "",
+                    "email_id": ""
+                },
+                "internal_experience": internal_exp,
+                "external_experience": external_exp,
+                "segment_exposure": segments,
+                "skills": skills,
+                "job_skill_mappings": job_mappings,
+                "certifications": certifications,
+                "qualifications": qualifications,
+            }
         
         # 3. Generate Semantic Text Summary for this profile
         profile["semantic_text"] = _generate_semantic_summary(profile)

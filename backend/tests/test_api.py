@@ -572,6 +572,702 @@ def test_designation_modifiers():
     assert res_mech[0]["ps_no"] == 6
 
 
+def test_waterproofing_with_min_experience_extraction():
+    from backend.app.query_parser import parse_query_rules, update_keyword_lists
+    
+    mock_profiles = [
+        {
+            "designation": "Civil Engineer",
+            "cluster": "Delhi",
+            "certifications": [],
+            "qualifications": [],
+            "segment_exposure": [],
+            "external_experience": [],
+            "skills": [
+                {"Skill": "Civil Engineering", "Sub-Skill": "Waterproofing", "User_Declared_Proficiency": "Proficient", "Reviewed_Proficiency": "Proficient", "Is_Core_Skill": "Yes"}
+            ]
+        }
+    ]
+    update_keyword_lists(mock_profiles)
+    
+    query = "show people with proficient waterproofing skills with min 5 years experience excluding the quality department"
+    res = parse_query_rules(query)
+    
+    assert res["experience_min"] == 5.0
+    assert res["exclude_department"] == "QUALITY"
+    # sub_skill should be set for backward compat display
+    assert res["sub_skill"] == "Waterproofing"
+    # reviewed_proficiency is now captured per-skill in skill_requirements
+    # (global reviewed_proficiency is no longer set when skill_requirements is populated)
+    skill_reqs = res.get("skill_requirements") or []
+    if skill_reqs:
+        # Proficient should be found in at least one skill requirement
+        assert any(
+            "Proficient" in (r.get("proficiency") or [])
+            for r in skill_reqs
+        )
+    else:
+        # Fallback: reviewed_proficiency still set for simple queries
+        assert res["reviewed_proficiency"] == "Proficient"
+
+
+def test_department_extraction_rules():
+    from backend.app.query_parser import parse_query_rules, update_keyword_lists
+    
+    mock_profiles = [
+        {
+            "designation": "Assistant Manager",
+            "cluster": "Chennai",
+            "certifications": [],
+            "qualifications": [],
+            "segment_exposure": [],
+            "external_experience": [],
+            "skills": []
+        }
+    ]
+    update_keyword_lists(mock_profiles)
+    
+    query = "show assistant manager in the quality department with more than 25 years of experience in chennai"
+    res = parse_query_rules(query)
+    
+    assert res["designation"] == "Assistant Manager"
+    assert res["department"] == "QUALITY"
+    assert res["location"] == "Chennai"
+    assert res["experience_min"] == 25.0
+
+
+def test_exclude_department_multiple_filtering():
+    from backend.app.structured_search import structured_search
+    
+    profiles = [
+        {"ps_no": 1, "department": "CIVIL", "total_exp": 10.0, "internal_exp_years": 5.0, "external_exp_years": 5.0, "skills": []},
+        {"ps_no": 2, "department": "QA/QC", "total_exp": 10.0, "internal_exp_years": 5.0, "external_exp_years": 5.0, "skills": []},
+        {"ps_no": 3, "department": "QUALITY", "total_exp": 10.0, "internal_exp_years": 5.0, "external_exp_years": 5.0, "skills": []},
+        {"ps_no": 4, "department": "MECH", "total_exp": 10.0, "internal_exp_years": 5.0, "external_exp_years": 5.0, "skills": []}
+    ]
+    
+    filters = {
+        "exclude_department": ["QUALITY", "CIVIL"]
+    }
+    
+    results = structured_search(profiles, filters)
+    assert len(results) == 1
+    assert results[0]["ps_no"] == 4
+
+
+def test_qa_qc_department_variations_and_extraction():
+    from backend.app.join_engine import extract_department
+    from backend.app.query_parser import parse_query_rules
+    
+    # 1. Test join engine mapping
+    assert extract_department("ASST.MANAGER-QA & QC") == "QA/QC"
+    assert extract_department("QA/QC ENGINEER") == "QA/QC"
+    assert extract_department("ASST. MANAGER (QA&QC)") == "QA/QC"
+    assert extract_department("QA ENGINEER") == "QA/QC"
+    assert extract_department("QC INSPECTOR") == "QA/QC"
+    
+    # 2. Test query parser mapping
+    res = parse_query_rules("show people in the qa & qc department")
+    assert res["department"] == "QA/QC"
+    
+    res2 = parse_query_rules("excluding qa&qc")
+    assert res2["exclude_department"] == "QA/QC"
+
+
+def test_exclude_and_positive_department_overlap():
+    from backend.app.query_parser import parse_query_rules
+    
+    query = "show people with proficient waterproofing skills with min 5 years experience excluding the quality and civil department"
+    res = parse_query_rules(query)
+    
+    assert res["department"] is None
+    assert res["exclude_department"] == ["QUALITY", "CIVIL"]
+
+
+def test_skill_specific_proficiency_and_stemming_and_aliases():
+    from backend.app.query_parser import parse_query_rules, update_keyword_lists
+    from backend.app.structured_search import structured_search
+    from backend.app.response_formatter import format_search_response
+    
+    # 1. Register mock profiles with skills having aliases and variations
+    mock_profiles = [
+        {
+            "ps_no": 101,
+            "staff_name": "John Doe",
+            "designation": "Civil Engineer",
+            "cluster": "Chennai",
+            "total_exp": 6.0,
+            "internal_exp_years": 4.0,
+            "external_exp_years": 2.0,
+            "band": "S - Band",
+            "cadre": "S2",
+            "bu": "Buildings & Factories",
+            "sbg": "B&F SBG",
+            "certifications": [],
+            "qualifications": [],
+            "segment_exposure": [],
+            "internal_experience": [],
+            "external_experience": [],
+            "skills": [
+                {"Skill": "Execution : Formwork", "Sub-Skill": "Formwork Systems", "User_Declared_Proficiency": "Role Model", "Reviewed_Proficiency": "Role Model", "Is_Core_Skill": "Yes"},
+                {"Skill": "Quarry", "Sub-Skill": "Quarrying Operations", "User_Declared_Proficiency": "Basic", "Reviewed_Proficiency": "Basic", "Is_Core_Skill": "No"}
+            ]
+        },
+        {
+            "ps_no": 102,
+            "staff_name": "Jane Smith",
+            "designation": "Civil Engineer",
+            "cluster": "Chennai",
+            "total_exp": 8.0,
+            "internal_exp_years": 5.0,
+            "external_exp_years": 3.0,
+            "band": "S - Band",
+            "cadre": "S2",
+            "bu": "Buildings & Factories",
+            "sbg": "B&F SBG",
+            "certifications": [],
+            "qualifications": [],
+            "segment_exposure": [],
+            "internal_experience": [],
+            "external_experience": [],
+            "skills": [
+                {"Skill": "Execution : Structural Steel", "Sub-Skill": "Structural Steelwork", "User_Declared_Proficiency": "Proficient", "Reviewed_Proficiency": "Proficient", "Is_Core_Skill": "Yes"},
+                {"Skill": "Finishes", "Sub-Skill": "Finishing", "User_Declared_Proficiency": "Intermediate", "Reviewed_Proficiency": "Intermediate", "Is_Core_Skill": "No"}
+            ]
+        }
+    ]
+    
+    update_keyword_lists(mock_profiles)
+    
+    # 2. Test alias matching: "Execution" should match both "Execution : Formwork" and "Execution : Structural Steel"
+    # Stem variation matching: "quarrying" matches "Quarry", "finishing" matches "Finishes"
+    query = "Identify employees with proficient or role model Execution skills and intermediate Finishing skills"
+    res = parse_query_rules(query)
+    
+    # Verify that the parsed filter contains skill_requirements
+    assert res["skill_requirements"] is not None
+    # With grouped OR logic, 'Execution' alias -> one req with skills list, 'Finishing' -> another
+    assert len(res["skill_requirements"]) >= 2
+    
+    # Find the Execution group (should contain both Formwork and Structural Steel in `skills` list)
+    req_exec = next(
+        r for r in res["skill_requirements"]
+        if any("Execution" in s for s in (r.get("skills") or [r.get("skill", "")]))
+    )
+    # Must have Proficient and/or Role Model
+    assert set(req_exec["proficiency"]) & {"Proficient", "Role Model"}
+    assert req_exec["operator"] == "or"
+    # Both Execution variants should be in the group
+    exec_skills = req_exec.get("skills") or [req_exec.get("skill")]
+    assert any("Execution : Formwork" in s for s in exec_skills)
+    assert any("Execution : Structural Steel" in s for s in exec_skills)
+    
+    # Find Finishes/Finishing group
+    req_finishing = next(
+        r for r in res["skill_requirements"]
+        if any(s in ("Finishes", "Finishing") for s in (r.get("skills") or [r.get("skill", "")]))
+    )
+    assert req_finishing["proficiency"] == ["Intermediate"]
+    
+    # 3. Test structured search filtering
+    filtered_results = structured_search(mock_profiles, res)
+    # John Doe: has Execution:Formwork(Role Model) but no Finishing -> fails Finishing req
+    # Jane Smith: has Execution:Structural Steel(Proficient) AND Finishes(Intermediate) -> MATCH
+    assert len(filtered_results) == 1
+    assert filtered_results[0]["ps_no"] == 102
+    
+    # 4. Test quarrying query: "people with quarrying skills"
+    res_quarry = parse_query_rules("people with quarrying skills")
+    assert res_quarry["skill_requirements"] is not None
+    req_quarry = next(
+        r for r in res_quarry["skill_requirements"]
+        if any("Quarry" in s for s in (r.get("skills") or [r.get("skill", "")]))
+    )
+    assert req_quarry["proficiency"] is None  # no proficiency specified
+    
+    filtered_quarry = structured_search(mock_profiles, res_quarry)
+    assert len(filtered_quarry) == 1
+    assert filtered_quarry[0]["ps_no"] == 101
+    
+    # 5. Test output formatting
+    formatted = format_search_response(filtered_results, res)
+    skill_req_str = formatted["active_filters"]["skill_requirements"]
+    # Finishes group should show Intermediate proficiency
+    assert "Intermediate" in skill_req_str
+    # Execution group should mention proficiency
+    assert "Proficient" in skill_req_str or "Role Model" in skill_req_str
+
+
+def test_execution_civil_query_without_qualification_greediness():
+    from backend.app.query_parser import parse_query_rules, update_keyword_lists
+    
+    mock_profiles = [
+        {
+            "designation": "Civil Engineer",
+            "cluster": "Chennai",
+            "certifications": [],
+            "qualifications": [{"Description": "B.Tech (Civil)"}],
+            "segment_exposure": [],
+            "external_experience": [],
+            "skills": [
+                {"Skill": "Execution : Civil", "Sub-Skill": "Civil Work Execution", "User_Declared_Proficiency": "Proficient", "Reviewed_Proficiency": "Proficient", "Is_Core_Skill": "Yes"},
+                {"Skill": "Execution : Formwork", "Sub-Skill": "Formwork Systems", "User_Declared_Proficiency": "Proficient", "Reviewed_Proficiency": "Proficient", "Is_Core_Skill": "Yes"},
+            ]
+        }
+    ]
+    update_keyword_lists(mock_profiles)
+    
+    res = parse_query_rules("find employees with proficient execution : civil skills")
+    assert res["qualification"] is None
+    assert res["sub_skill"] is None
+    assert res["skill_requirements"] is not None
+    assert len(res["skill_requirements"]) == 1
+    req = res["skill_requirements"][0]
+    assert req["skills"] == ["Execution : Civil"]
+    assert req["proficiency"] == ["Proficient"]
+
+
+def test_tier_1_query_does_not_extract_ti_segment():
+    from backend.app.query_parser import parse_query_rules, update_keyword_lists
+    
+    mock_profiles = [
+        {
+            "designation": "Assistant Manager",
+            "cluster": "Chennai",
+            "certifications": [],
+            "qualifications": [],
+            "segment_exposure": [{"Segment": "TI"}],
+            "external_experience": [],
+            "skills": []
+        }
+    ]
+    update_keyword_lists(mock_profiles)
+    
+    res = parse_query_rules("show assistant manager in the quality department with more than 25 years of experience in chennai in tier 1 band")
+    assert res["designation"] == "Assistant Manager"
+    assert res["department"] == "QUALITY"
+    assert res["location"] == "Chennai"
+    assert res["band"] == "Tier 1"
+    assert res["experience_min"] == 25.0
+    assert res["segment"] is None
+
+
+def test_execution_civil_skills_and_finishes_query_no_department_greediness():
+    from backend.app.query_parser import parse_query_rules, update_keyword_lists
+    
+    mock_profiles = [
+        {
+            "designation": "Civil Engineer",
+            "cluster": "Chennai",
+            "certifications": [],
+            "qualifications": [],
+            "segment_exposure": [{"Segment": "Commercial Projects"}],
+            "external_experience": [],
+            "skills": [
+                {"Skill": "Execution : Civil", "Sub-Skill": "Civil Work Execution", "User_Declared_Proficiency": "Proficient", "Reviewed_Proficiency": "Proficient", "Is_Core_Skill": "Yes"},
+                {"Skill": "Execution : Formwork", "Sub-Skill": "Formwork Systems", "User_Declared_Proficiency": "Proficient", "Reviewed_Proficiency": "Proficient", "Is_Core_Skill": "Yes"},
+                {"Skill": "Execution : Structural Steel", "Sub-Skill": "Structural Steelwork", "User_Declared_Proficiency": "Proficient", "Reviewed_Proficiency": "Proficient", "Is_Core_Skill": "Yes"},
+                {"Skill": "Execution : MEP", "Sub-Skill": "MEP Execution", "User_Declared_Proficiency": "Proficient", "Reviewed_Proficiency": "Proficient", "Is_Core_Skill": "Yes"},
+                {"Skill": "QC - Finishing - Water Proofing", "Sub-Skill": "Finishing Work", "User_Declared_Proficiency": "Proficient", "Reviewed_Proficiency": "Proficient", "Is_Core_Skill": "Yes"},
+                {"Skill": "Execution Commercial", "Sub-Skill": "Commercial Execution", "User_Declared_Proficiency": "Proficient", "Reviewed_Proficiency": "Proficient", "Is_Core_Skill": "Yes"}
+            ]
+        }
+    ]
+    update_keyword_lists(mock_profiles)
+    
+    res = parse_query_rules("List candidates with Execution skills (Civil) and Execution skills( Finishes) worked in Commercial projects, AND are having over 10 years of experience")
+    assert res["department"] is None
+    assert res["experience_min"] == 10.0
+    assert res["sbg"] == "Commercial & Residential Spaces"
+    
+    assert res["skill_requirements"] is not None
+    matched_skills = []
+    for req in res["skill_requirements"]:
+        matched_skills.extend(req.get("skills") or [req.get("skill")])
+        
+    assert "Execution : Civil" in matched_skills
+    assert "Finishing Work" in matched_skills
+    assert "Execution Commercial" not in matched_skills
+
+
+def test_exact_matches_prioritized_over_stem_matches():
+    from backend.app.query_parser import parse_query_rules, update_keyword_lists
+    
+    mock_profiles = [
+        {
+            "designation": "Civil Engineer",
+            "cluster": "Chennai",
+            "certifications": [],
+            "qualifications": [],
+            "segment_exposure": [],
+            "external_experience": [],
+            "skills": [
+                {"Skill": "Civil Engineering", "Sub-Skill": "Finishes"},
+                {"Skill": "Civil Engineering", "Sub-Skill": "QC - Civil, Finishes"},
+                {"Skill": "Civil Engineering", "Sub-Skill": "QC - Finishing - Water Proofing"},
+                {"Skill": "Civil Engineering", "Sub-Skill": "Execution : Civil"},
+                {"Skill": "Civil Engineering", "Sub-Skill": "Execution : Formwork"}
+            ]
+        }
+    ]
+    update_keyword_lists(mock_profiles)
+    
+    res = parse_query_rules("show people with execution: civil and finishes skills")
+    assert res["department"] is None
+    
+    assert res["skill_requirements"] is not None
+    matched_skills = []
+    for req in res["skill_requirements"]:
+        matched_skills.extend(req.get("skills") or [req.get("skill")])
+        
+    assert "Execution : Civil" in matched_skills
+    assert "Finishes" in matched_skills
+    assert "QC - Civil, Finishes" not in matched_skills
+    assert "QC - Finishing - Water Proofing" not in matched_skills
+
+
+def test_response_formatter_skips_legacy_skills_when_requirements_present():
+    from backend.app.response_formatter import format_search_response
+    
+    filters = {
+        "experience_min": 10.0,
+        "skill": ["Execution : Civil", "QC - Finishing - Water Proofing"],
+        "skill_operator": "and",
+        "sub_skill": "Rebar : Execution",
+        "reviewed_proficiency": "Proficient",
+        "skill_requirements": [
+            {"skills": ["Execution : Civil"], "proficiency": None, "operator": "or"},
+            {"skills": ["QC - Finishing - Water Proofing"], "proficiency": None, "operator": "or"}
+        ]
+    }
+    
+    formatted = format_search_response([], filters)
+    message = formatted["message"]
+    
+    assert "Min Exp: 10.0 years" in message
+    assert "Skills: Execution : Civil & QC - Finishing - Water Proofing" in message
+    assert "Skill:" not in message
+    assert "Sub-Skill:" not in message
+    assert "Reviewed Proficiency:" not in message
+
+
+def test_execution_civil_and_execution_formwork_query_backtrack_matching():
+    from backend.app.query_parser import parse_query_rules, update_keyword_lists
+    
+    mock_profiles = [
+        {
+            "designation": "Civil Engineer",
+            "cluster": "Chennai",
+            "certifications": [],
+            "qualifications": [],
+            "segment_exposure": [],
+            "external_experience": [],
+            "skills": [
+                {"Skill": "Execution : Civil", "Sub-Skill": "Civil Work Execution", "User_Declared_Proficiency": "Proficient", "Reviewed_Proficiency": "Proficient", "Is_Core_Skill": "Yes"},
+                {"Skill": "Execution : Formwork", "Sub-Skill": "Formwork Systems", "User_Declared_Proficiency": "Proficient", "Reviewed_Proficiency": "Proficient", "Is_Core_Skill": "Yes"},
+                {"Skill": "Execution : Structural Steel", "Sub-Skill": "Structural Steelwork", "User_Declared_Proficiency": "Proficient", "Reviewed_Proficiency": "Proficient", "Is_Core_Skill": "Yes"},
+                {"Skill": "Execution : MEP", "Sub-Skill": "MEP Execution", "User_Declared_Proficiency": "Proficient", "Reviewed_Proficiency": "Proficient", "Is_Core_Skill": "Yes"},
+                {"Skill": "Rebar : Execution", "Sub-Skill": "Rebar Execution", "User_Declared_Proficiency": "Proficient", "Reviewed_Proficiency": "Proficient", "Is_Core_Skill": "Yes"}
+            ]
+        }
+    ]
+    update_keyword_lists(mock_profiles)
+    
+    res = parse_query_rules("List candidates with Execution : civil skills and execution : formwork skills")
+    assert res["skill_requirements"] is not None
+    assert len(res["skill_requirements"]) == 2
+    
+    matched_skills = []
+    for req in res["skill_requirements"]:
+        matched_skills.extend(req.get("skills") or [req.get("skill")])
+        
+    assert set(matched_skills) == {"Execution : Civil", "Execution : Formwork"}
+
+
+def test_qualification_logical_filters():
+    from backend.app.query_parser import parse_query_rules, update_keyword_lists
+    from backend.app.structured_search import structured_search
+    
+    mock_profiles = [
+        {
+            "designation": "Civil Engineer",
+            "cluster": "Chennai",
+            "certifications": [],
+            "qualifications": [
+                {"Description": "B.E. in Civil Engineering"},
+                {"Description": "Diploma in Civil Engineering (DCE)"},
+                {"Description": "SSC"}
+            ],
+            "segment_exposure": [],
+            "external_experience": [],
+            "skills": []
+        },
+        {
+            "designation": "Civil Engineer",
+            "cluster": "Chennai",
+            "certifications": [],
+            "qualifications": [
+                {"Description": "B.Tech in Civil Engineering"}
+            ],
+            "segment_exposure": [],
+            "external_experience": [],
+            "skills": []
+        }
+    ]
+    update_keyword_lists(mock_profiles)
+    
+    # 1. Test OR logic for qualifications (with comma)
+    res_or = parse_query_rules("find people with BE, DCE or SSC qualification")
+    assert isinstance(res_or["qualification"], list)
+    assert set(res_or["qualification"]) == {"B.E.", "Dce", "Ssc"}
+    assert res_or["qualification_operator"] == "or"
+    
+    # 2. Test AND logic for qualifications
+    res_and = parse_query_rules("find people with both BE and DCE qualification")
+    assert isinstance(res_and["qualification"], list)
+    assert set(res_and["qualification"]) == {"B.E.", "Dce"}
+    assert res_and["qualification_operator"] == "and"
+    
+    # 3. Test list structure under structured search
+    # B.E. (BE), DCE, SSC -> Employee 1 has DCE and B.E., Employee 2 has B.Tech
+    p1 = {
+        "ps_no": 1,
+        "qualifications": [{"Description": "B.E. in Civil Engineering"}, {"Description": "DCE"}],
+    }
+    p2 = {
+        "ps_no": 2,
+        "qualifications": [{"Description": "B.Tech"}],
+    }
+    
+    # Filter for ["B.E.", "Dce"] with AND operator -> p1 has both, so it matches
+    results_and = structured_search([p1, p2], {"qualification": ["B.E.", "Dce"], "qualification_operator": "and"})
+    assert len(results_and) == 1
+    assert results_and[0]["ps_no"] == 1
+    
+    # Filter for ["B.E.", "Dce"] with OR operator -> p1 matches
+    results_or = structured_search([p1, p2], {"qualification": ["B.E.", "Dce"], "qualification_operator": "or"})
+    assert len(results_or) == 1
+    assert results_or[0]["ps_no"] == 1
+
+
+def test_qualification_false_positives():
+    from backend.app.query_parser import parse_query_rules, update_keyword_lists
+    
+    mock_profiles = [
+        {
+            "designation": "Civil Engineer",
+            "cluster": "Chennai",
+            "certifications": [],
+            "qualifications": [
+                {"Description": "B.E. in Civil Engineering"},
+                {"Description": "M.E. in Structural Engineering"}
+            ],
+            "segment_exposure": [],
+            "external_experience": [],
+            "skills": []
+        }
+    ]
+    update_keyword_lists(mock_profiles)
+    
+    # 1. Test "me" as pronoun is skipped
+    res_pronoun = parse_query_rules("show me people with B.Tech and M.Tech")
+    assert isinstance(res_pronoun["qualification"], list)
+    assert set(res_pronoun["qualification"]) == {"B.Tech", "M.Tech"}
+    
+    # 2. Test "me" as qualification is matched
+    res_qual = parse_query_rules("people with ME qualification")
+    assert res_qual["qualification"] in ("M.E.", "M.E")
+    
+    # 3. Test "be" as auxiliary verb is skipped
+    res_verb = parse_query_rules("who should be site engineer")
+    assert res_verb["qualification"] is None
+    
+    # 4. Test "be" as qualification is matched
+    res_be_qual = parse_query_rules("people with BE qualification")
+    assert res_be_qual["qualification"] == "B.E."
+
+
+def test_qualification_refinements_and_compounds():
+    from backend.app.query_parser import parse_query_rules, update_keyword_lists
+    from backend.app.structured_search import structured_search
+
+    # 1. Test logic override refinement parsing
+    res_ref_or = parse_query_rules("use OR logic for qualifications")
+    assert res_ref_or["intent"] == "REFINEMENT"
+    assert res_ref_or["qualification_operator"] == "or"
+
+    res_ref_and = parse_query_rules("use AND logic for qualifications")
+    assert res_ref_and["intent"] == "REFINEMENT"
+    assert res_ref_and["qualification_operator"] == "and"
+
+    res_ref_cert_or = parse_query_rules("use OR operator for certifications")
+    assert res_ref_cert_or["intent"] == "REFINEMENT"
+    assert res_ref_cert_or["certification_operator"] == "or"
+
+    # 2. Test compound hyphenated/slashed qualifications
+    mock_profiles = [
+        {
+            "ps_no": 101,
+            "designation": "Civil Engineer",
+            "qualifications": [
+                {"Description": "MTech-Construction Engineering & Management"}
+            ],
+            "certifications": [],
+            "segment_exposure": [],
+            "external_experience": [],
+            "skills": []
+        },
+        {
+            "ps_no": 102,
+            "designation": "Civil Engineer",
+            "qualifications": [
+                {"Description": "B.Tech/B.E."}
+            ],
+            "certifications": [],
+            "segment_exposure": [],
+            "external_experience": [],
+            "skills": []
+        }
+    ]
+    update_keyword_lists(mock_profiles)
+
+    # Parser should match "mtech" because we split hyphenated words during dynamic list rebuild
+    res_mtech = parse_query_rules("people with mtech")
+    assert res_mtech["qualification"] == "M.Tech"
+
+    # Structured search should match mtech-construction profile against query filter "mtech" or "Mtech"
+    matched_mtech = structured_search(mock_profiles, {"qualification": "mtech", "qualification_operator": "or"})
+    assert len(matched_mtech) == 1
+    assert matched_mtech[0]["ps_no"] == 101
+
+    # Structured search should match B.Tech/B.E. profile against query filter "be" or "B.E."
+    matched_be = structured_search(mock_profiles, {"qualification": "be", "qualification_operator": "or"})
+    assert len(matched_be) == 1
+    assert matched_be[0]["ps_no"] == 102
+
+    # 3. Test parenthesized abbreviations like (DCE), (SSC), (BA)
+    mock_parentheses_profiles = [
+        {
+            "ps_no": 201,
+            "designation": "Civil Engineer",
+            "qualifications": [
+                {"Description": "Diploma in Civil Engineering (DCE)"},
+                {"Description": "Secondary School Certificate (SSC)"},
+                {"Description": "Bachelor of Arts (BA)"}
+            ],
+            "certifications": [],
+            "segment_exposure": [],
+            "external_experience": [],
+            "skills": []
+        },
+        {
+            "ps_no": 202,
+            "designation": "Civil Engineer",
+            "qualifications": [
+                {"Description": "Bachelor of Arts (BA)"}
+            ],
+            "certifications": [],
+            "segment_exposure": [],
+            "external_experience": [],
+            "skills": []
+        }
+    ]
+    matched_and = structured_search(mock_parentheses_profiles, {"qualification": ["dce", "ssc", "ba"], "qualification_operator": "and"})
+    assert len(matched_and) == 1
+    assert matched_and[0]["ps_no"] == 201
+
+    # 4. Test alias expansion without parentheses
+    mock_alias_profiles = [
+        {
+            "ps_no": 301,
+            "designation": "Civil Engineer",
+            "qualifications": [
+                {"Description": "Diploma in Civil Engineering"},
+                {"Description": "Secondary School Certificate"},
+                {"Description": "Bachelor of Arts"}
+            ],
+            "certifications": [],
+            "segment_exposure": [],
+            "external_experience": [],
+            "skills": []
+        }
+    ]
+    # Check that querying via abbreviation "dce" matches "Diploma in Civil Engineering"
+    matched_alias = structured_search(mock_alias_profiles, {"qualification": ["dce", "ssc", "ba"], "qualification_operator": "and"})
+    assert len(matched_alias) == 1
+    assert matched_alias[0]["ps_no"] == 301
+
+    # Check that querying via full name "diploma in civil engineering" matches a profile with just "DCE"
+    mock_dce_only = [{"ps_no": 302, "qualifications": [{"Description": "DCE"}], "certifications": [], "segment_exposure": [], "external_experience": [], "skills": []}]
+    matched_full_name = structured_search(mock_dce_only, {"qualification": "diploma in civil engineering"})
+    assert len(matched_full_name) == 1
+    assert matched_full_name[0]["ps_no"] == 302
+
+
+def test_qualification_dots_spaces_and_missing_staff():
+    # 1. Test space after dot query normalization
+    from backend.app.query_parser import parse_query_rules
+    res = parse_query_rules("find people with B. Tech and B. E. and M. Tech")
+    assert set(res["qualification"]) == {"B.Tech", "B.E.", "M.Tech"}
+
+    # 2. Test ITI Fitter & SSC matching
+    mock_profiles = [
+        {
+            "ps_no": 9901,
+            "staff_name": "Test Fitter",
+            "qualifications": [
+                {"Description": "ITI Fitter"},
+                {"Description": "Secondary School Certificate (SSC)"}
+            ],
+            "certifications": [],
+            "segment_exposure": [],
+            "external_experience": [],
+            "skills": []
+        }
+    ]
+    # Match using "iti fitter" and "ssc" with AND operator
+    matched = structured_search(mock_profiles, {"qualification": ["iti fitter", "ssc"], "qualification_operator": "and"})
+    assert len(matched) == 1
+    assert matched[0]["ps_no"] == 9901
+
+    # Match using just "fitter" and "ssc" with AND operator
+    matched_fitter_ssc = structured_search(mock_profiles, {"qualification": ["fitter", "ssc"], "qualification_operator": "and"})
+    assert len(matched_fitter_ssc) == 1
+
+    # 3. Test join engine for missing staff master record
+    import pandas as pd
+    from backend.app.join_engine import build_employee_profiles
+    cleaned_dfs = {
+        "Staff_Master": pd.DataFrame(columns=["PS No", "Staff Name", "Email ID", "Mobile", "Cadre", "Band", "Designation",
+                                             "Total Exp", "Internal Exp", "External Exp", "Job Code", "Job Name",
+                                             "Cluster", "BU", "SBG", "IS PS No", "IS Name", "IS Email ID"]),
+        "Internal_Exp": pd.DataFrame(columns=["PS No", "Org", "From", "To"]),
+        "External_Exp": pd.DataFrame(columns=["PS No", "Org", "Designation", "From", "To"]),
+        "Segment_Exposure": pd.DataFrame(columns=["PS No", "Segment", "Sub-Segment"]),
+        "Skill_Proficiency": pd.DataFrame(columns=["PS No", "Staff Name", "Skill", "Sub-Skill", "User_Declared_Proficiency",
+                                                   "Reviewed_Proficiency", "Is_Core_Skill"]),
+        "Job_Skill_Mapping": pd.DataFrame(columns=["PS No", "Org", "Skill", "Sub-Skill", "Role", "Reporting Count", "Value"]),
+        "Certification": pd.DataFrame(columns=["PS No", "Certification"]),
+        "Qualification": pd.DataFrame([
+            {"PS No": 11121, "Year": 2003, "Description": "Diploma in Civil Engineering (DCE)"},
+            {"PS No": 11121, "Year": 2000, "Description": "Secondary School Certificate (SSC)"}
+        ])
+    }
+    profiles = build_employee_profiles(cleaned_dfs)
+    assert len(profiles) == 1
+    assert profiles[0]["ps_no"] == 11121
+    assert profiles[0]["staff_name"] == "Employee 11121"
+    assert len(profiles[0]["qualifications"]) == 2
+
+
+
+
+
+
+
+
+
+
 
 
 
